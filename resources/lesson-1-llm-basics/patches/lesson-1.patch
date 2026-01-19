@@ -1,0 +1,1673 @@
+diff --git a/resources/lesson-1-llm-basics/README.md b/resources/lesson-1-llm-basics/README.md
+new file mode 100644
+index 0000000..62a2705
+--- /dev/null
++++ b/resources/lesson-1-llm-basics/README.md
+@@ -0,0 +1,405 @@
++# Lesson 1: LLM Basics
++
++## Overview
++
++This lesson introduces the fundamental concepts behind Large Language Models (LLMs). You will learn about the Transformer architecture, understand how attention mechanisms work, and explore what model parameters mean in the context of LLMs.
++
++### Learning Objectives
++
++By the end of this lesson, you will be able to:
++- Explain the core components of the Transformer architecture
++- Understand how self-attention and multi-head attention work
++- Describe what model parameters (weights and biases) represent
++- Calculate the approximate number of parameters in a Transformer model
++- Implement a basic attention mechanism from scratch
++
++## Prerequisites
++
++- Basic Python programming knowledge
++- Basic linear algebra (matrix multiplication, vectors)
++- Familiarity with neural network concepts (optional but helpful)
++
++## Concepts
++
++### 1. The Transformer Architecture
++
++The Transformer is a neural network architecture introduced in the landmark paper "Attention Is All You Need" (Vaswani et al., 2017). Unlike previous architectures like RNNs and LSTMs that process sequences sequentially, Transformers process all positions in parallel using attention mechanisms.
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                    TRANSFORMER ARCHITECTURE                  │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  ┌─────────────────┐           ┌─────────────────┐         │
++│  │     ENCODER     │           │     DECODER     │         │
++│  │                 │           │                 │         │
++│  │  ┌───────────┐  │           │  ┌───────────┐  │         │
++│  │  │Multi-Head │  │           │  │  Masked   │  │         │
++│  │  │ Attention │  │           │  │ Multi-Head│  │         │
++│  │  └─────┬─────┘  │           │  │ Attention │  │         │
++│  │        │        │           │  └─────┬─────┘  │         │
++│  │  ┌─────▼─────┐  │           │        │        │         │
++│  │  │ Add & Norm│  │           │  ┌─────▼─────┐  │         │
++│  │  └─────┬─────┘  │           │  │ Add & Norm│  │         │
++│  │        │        │           │  └─────┬─────┘  │         │
++│  │  ┌─────▼─────┐  │           │        │        │         │
++│  │  │Feed Forward│ │  ──────►  │  ┌─────▼─────┐  │         │
++│  │  │  Network  │  │           │  │Cross-Attn │  │         │
++│  │  └─────┬─────┘  │           │  └─────┬─────┘  │         │
++│  │        │        │           │        │        │         │
++│  │  ┌─────▼─────┐  │           │  ┌─────▼─────┐  │         │
++│  │  │ Add & Norm│  │           │  │Feed Forward│ │         │
++│  │  └───────────┘  │           │  └───────────┘  │         │
++│  │                 │           │                 │         │
++│  │     × N layers  │           │     × N layers  │         │
++│  └─────────────────┘           └─────────────────┘         │
++│                                                             │
++│  ┌─────────────────┐           ┌─────────────────┐         │
++│  │   Input         │           │   Output        │         │
++│  │   Embedding     │           │   Embedding     │         │
++│  │       +         │           │       +         │         │
++│  │   Positional    │           │   Positional    │         │
++│  │   Encoding      │           │   Encoding      │         │
++│  └─────────────────┘           └─────────────────┘         │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++#### Key Components:
++
++1. **Encoder**: Processes the input sequence and creates representations
++2. **Decoder**: Generates output tokens using encoder representations
++3. **Multi-Head Attention**: Allows the model to focus on different parts of the input
++4. **Feed-Forward Network**: Applies non-linear transformations
++5. **Add & Norm**: Residual connections with layer normalization
++
++> **Note**: Modern LLMs like GPT and Llama use a **decoder-only** architecture, which simplifies the original encoder-decoder design for text generation tasks.
++
++### 2. Attention Mechanism
++
++Attention is the core innovation of Transformers. It allows the model to weigh the importance of different parts of the input when processing each position.
++
++#### Self-Attention
++
++Self-attention computes relationships between all positions in a sequence. For each position, it asks: "How relevant is every other position to me?"
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                    SELF-ATTENTION MECHANISM                  │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Input: "The cat sat on the mat"                           │
++│                                                             │
++│  When processing "sat":                                     │
++│                                                             │
++│  The   cat   sat   on    the   mat                         │
++│   │     │     │     │     │     │                          │
++│   ▼     ▼     ▼     ▼     ▼     ▼                          │
++│  0.1   0.4   1.0   0.1   0.1   0.3   ◄── Attention weights │
++│                                                             │
++│  "sat" attends most to itself and "cat" (the subject)      │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++#### Query, Key, Value (QKV)
++
++The attention mechanism uses three learned projections:
++
++- **Query (Q)**: "What am I looking for?"
++- **Key (K)**: "What do I contain?"
++- **Value (V)**: "What information do I provide?"
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                     QKV COMPUTATION                          │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Input Embedding (X)                                        │
++│         │                                                   │
++│         ├──────► × W_Q ──────► Q (Query)                   │
++│         │                                                   │
++│         ├──────► × W_K ──────► K (Key)                     │
++│         │                                                   │
++│         └──────► × W_V ──────► V (Value)                   │
++│                                                             │
++│  W_Q, W_K, W_V are learned weight matrices                 │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++#### Scaled Dot-Product Attention
++
++The attention formula:
++
++```
++Attention(Q, K, V) = softmax(Q × K^T / √d_k) × V
++```
++
++Where:
++- `Q × K^T`: Dot product measures similarity between queries and keys
++- `√d_k`: Scaling factor (d_k = dimension of keys) prevents large values
++- `softmax`: Converts scores to probabilities (weights sum to 1)
++- `× V`: Weighted sum of values based on attention weights
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│              SCALED DOT-PRODUCT ATTENTION                    │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│      Q          K^T                                         │
++│   ┌─────┐    ┌─────┐                                       │
++│   │     │    │     │      MatMul                           │
++│   │     │ ×  │     │  ──────────►  Attention Scores        │
++│   │     │    │     │                    │                  │
++│   └─────┘    └─────┘                    │                  │
++│                                         ▼                  │
++│                                  Scale (÷ √d_k)            │
++│                                         │                  │
++│                                         ▼                  │
++│                                   Softmax                  │
++│                                         │                  │
++│                                         ▼                  │
++│                           Attention Weights × V            │
++│                                         │                  │
++│                                         ▼                  │
++│                                     Output                 │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++#### Multi-Head Attention
++
++Instead of performing a single attention computation, multi-head attention runs multiple attention operations in parallel ("heads"), each learning different relationships.
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                   MULTI-HEAD ATTENTION                       │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Input                                                      │
++│    │                                                        │
++│    ├────► Head 1: Attention(Q₁, K₁, V₁) ──┐                │
++│    │                                       │                │
++│    ├────► Head 2: Attention(Q₂, K₂, V₂) ──┼──► Concat ──► Linear │
++│    │                                       │                │
++│    ├────► Head 3: Attention(Q₃, K₃, V₃) ──┤                │
++│    │              ...                      │                │
++│    └────► Head h: Attention(Qₕ, Kₕ, Vₕ) ──┘                │
++│                                                             │
++│  Each head can focus on different aspects:                  │
++│  - Head 1: Subject-verb relationships                       │
++│  - Head 2: Adjective-noun relationships                     │
++│  - Head 3: Long-range dependencies                          │
++│  - etc.                                                     │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++### 3. Positional Encoding
++
++Since attention processes all positions in parallel, the model has no inherent sense of order. Positional encodings add position information to the input embeddings.
++
++#### Sinusoidal Positional Encoding (Original Transformer)
++
++```python
++PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
++PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
++```
++
++Where:
++- `pos`: Position in the sequence
++- `i`: Dimension index
++- `d_model`: Embedding dimension
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                  POSITIONAL ENCODING                         │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Position 0:  [sin(0), cos(0), sin(0), cos(0), ...]        │
++│  Position 1:  [sin(1/f), cos(1/f), sin(1/f²), cos(1/f²),.] │
++│  Position 2:  [sin(2/f), cos(2/f), sin(2/f²), cos(2/f²),.] │
++│     ...                                                     │
++│                                                             │
++│  Token Embedding + Positional Encoding = Final Embedding   │
++│                                                             │
++│  Modern approaches: RoPE (Rotary Position Embedding)       │
++│                     ALiBi (Attention with Linear Biases)   │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++### 4. Model Parameters
++
++Parameters are the learned values in a neural network. In LLMs, parameters consist of **weights** and **biases**.
++
++#### Weights
++
++Weights determine the strength of connections between neurons. They are matrices that transform inputs:
++
++```python
++output = input @ weight + bias
++```
++
++#### Biases
++
++Biases are offset values that shift the activation, allowing the model to fit data better:
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                    WEIGHTS AND BIASES                        │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Linear Layer: y = Wx + b                                   │
++│                                                             │
++│  ┌─────────┐      ┌─────────┐      ┌─────────┐             │
++│  │  Input  │  ×   │ Weight  │  +   │  Bias   │  =  Output  │
++│  │   (x)   │      │   (W)   │      │   (b)   │             │
++│  │ [1024]  │      │[1024×   │      │ [4096]  │    [4096]   │
++│  │         │      │  4096]  │      │         │             │
++│  └─────────┘      └─────────┘      └─────────┘             │
++│                                                             │
++│  Parameters in this layer: 1024 × 4096 + 4096 = 4,198,400  │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++#### Parameter Count in Transformers
++
++For a Transformer with:
++- `d_model`: Hidden dimension (e.g., 4096)
++- `n_layers`: Number of layers (e.g., 32)
++- `n_heads`: Number of attention heads (e.g., 32)
++- `vocab_size`: Vocabulary size (e.g., 32000)
++- `d_ff`: Feed-forward dimension (typically 4 × d_model)
++
++Main parameter sources:
++1. **Embedding layer**: `vocab_size × d_model`
++2. **Per layer**:
++   - QKV projections: `3 × d_model × d_model`
++   - Output projection: `d_model × d_model`
++   - Feed-forward: `2 × d_model × d_ff`
++3. **Output layer**: `d_model × vocab_size`
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│           LLAMA 2 7B PARAMETER BREAKDOWN                     │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  Configuration:                                             │
++│  - d_model = 4096                                           │
++│  - n_layers = 32                                            │
++│  - n_heads = 32                                             │
++│  - vocab_size = 32000                                       │
++│  - d_ff = 11008                                             │
++│                                                             │
++│  Embeddings:      32000 × 4096        =    131,072,000     │
++│  Per Layer:                                                 │
++│    - Attention:   4 × 4096 × 4096     =     67,108,864     │
++│    - FFN:         2 × 4096 × 11008    =     90,177,536     │
++│    - LayerNorms:  2 × 4096            =          8,192     │
++│                                                             │
++│  Total per layer:                     =    157,294,592     │
++│  All 32 layers:   32 × 157,294,592    =  5,033,426,944     │
++│                                                             │
++│  Final LayerNorm: 4096                =          4,096     │
++│  Output Layer:    4096 × 32000        =    131,072,000     │
++│                                                             │
++│  ─────────────────────────────────────────────────────     │
++│  TOTAL (approx):                      ≈   6.7 Billion      │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++### 5. Decoder-Only Architecture (Modern LLMs)
++
++Most modern LLMs (GPT, Llama, Claude) use a decoder-only architecture:
++
++```
++┌─────────────────────────────────────────────────────────────┐
++│                 DECODER-ONLY ARCHITECTURE                    │
++├─────────────────────────────────────────────────────────────┤
++│                                                             │
++│  ┌─────────────────────────────────────────────────────┐   │
++│  │                   DECODER BLOCK                      │   │
++│  │                                                      │   │
++│  │  Input ──► RMSNorm ──► Masked Multi-Head Attention  │   │
++│  │              │                    │                  │   │
++│  │              └────── Add ◄────────┘                  │   │
++│  │                       │                              │   │
++│  │                       ▼                              │   │
++│  │              RMSNorm ──► Feed-Forward Network       │   │
++│  │                │                    │                │   │
++│  │                └────── Add ◄────────┘                │   │
++│  │                         │                            │   │
++│  │                      Output                          │   │
++│  └─────────────────────────────────────────────────────┘   │
++│                          × N layers                         │
++│                                                             │
++│  Key difference: Uses CAUSAL (masked) attention            │
++│  - Each token can only attend to previous tokens           │
++│  - Enables autoregressive text generation                  │
++│                                                             │
++└─────────────────────────────────────────────────────────────┘
++```
++
++## Implementation
++
++See the `code/` directory for implementation examples:
++
++- `attention.py`: Basic attention mechanism implementation
++- `transformer_block.py`: Complete Transformer block
++- `positional_encoding.py`: Sinusoidal positional encoding
++
++### Quick Start
++
++```python
++import torch
++from code.attention import scaled_dot_product_attention, MultiHeadAttention
++
++# Example: Scaled dot-product attention
++batch_size, seq_len, d_model = 2, 10, 512
++Q = torch.randn(batch_size, seq_len, d_model)
++K = torch.randn(batch_size, seq_len, d_model)
++V = torch.randn(batch_size, seq_len, d_model)
++
++output, attention_weights = scaled_dot_product_attention(Q, K, V)
++print(f"Output shape: {output.shape}")  # [2, 10, 512]
++print(f"Attention weights shape: {attention_weights.shape}")  # [2, 10, 10]
++```
++
++## Exercises
++
++1. **Implement scaled dot-product attention from scratch**
++   - Compute Q×K^T, apply scaling, softmax, and multiply by V
++   - Verify your implementation matches PyTorch's built-in functions
++
++2. **Visualize attention patterns**
++   - Create a simple sentence and compute attention weights
++   - Plot the attention matrix as a heatmap
++   - Analyze which words attend to which
++
++3. **Calculate parameter counts**
++   - Given a model configuration, calculate the total parameters
++   - Compare your calculation with Llama 2 7B specifications
++
++4. **Implement causal masking**
++   - Modify attention to prevent tokens from attending to future positions
++   - This is essential for autoregressive generation
++
++## Additional Resources
++
++### Papers
++- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) - Original Transformer paper (Vaswani et al., 2017)
++- [Language Models are Unsupervised Multitask Learners](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) - GPT-2 paper
++- [LLaMA: Open and Efficient Foundation Language Models](https://arxiv.org/abs/2302.13971) - LLaMA paper (Touvron et al., 2023)
++
++### Tutorials and Articles
++- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) - Visual explanation by Jay Alammar
++- [The Annotated Transformer](https://nlp.seas.harvard.edu/2018/04/03/attention.html) - Line-by-line implementation
++- [Andrej Karpathy's Neural Networks: Zero to Hero](https://karpathy.ai/zero-to-hero.html) - Video series
++
++### Documentation
++- [PyTorch nn.Transformer](https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html)
++- [Hugging Face Transformers](https://huggingface.co/docs/transformers/)
+diff --git a/resources/lesson-1-llm-basics/code/__init__.py b/resources/lesson-1-llm-basics/code/__init__.py
+new file mode 100644
+index 0000000..f3d05ff
+--- /dev/null
++++ b/resources/lesson-1-llm-basics/code/__init__.py
+@@ -0,0 +1,45 @@
++"""
++Lesson 1: LLM Basics - Code Module
++
++This package contains implementations of core Transformer components:
++- attention.py: Scaled dot-product and multi-head attention
++- positional_encoding.py: Sinusoidal and RoPE positional encodings
++- transformer_block.py: Complete Transformer block with FFN
++"""
++
++from .attention import (
++    scaled_dot_product_attention,
++    create_causal_mask,
++    MultiHeadAttention,
++    count_parameters,
++)
++
++from .positional_encoding import (
++    SinusoidalPositionalEncoding,
++    RotaryPositionalEmbedding,
++)
++
++from .transformer_block import (
++    RMSNorm,
++    LayerNorm,
++    FeedForward,
++    TransformerBlock,
++    SimpleTransformer,
++)
++
++__all__ = [
++    # Attention
++    "scaled_dot_product_attention",
++    "create_causal_mask",
++    "MultiHeadAttention",
++    "count_parameters",
++    # Positional Encoding
++    "SinusoidalPositionalEncoding",
++    "RotaryPositionalEmbedding",
++    # Transformer Block
++    "RMSNorm",
++    "LayerNorm",
++    "FeedForward",
++    "TransformerBlock",
++    "SimpleTransformer",
++]
+diff --git a/resources/lesson-1-llm-basics/code/attention.py b/resources/lesson-1-llm-basics/code/attention.py
+new file mode 100644
+index 0000000..e04429c
+--- /dev/null
++++ b/resources/lesson-1-llm-basics/code/attention.py
+@@ -0,0 +1,338 @@
++"""
++Lesson 1: Attention Mechanism Implementation
++
++This module implements the core attention mechanisms used in Transformer models:
++1. Scaled Dot-Product Attention
++2. Multi-Head Attention
++
++These are the fundamental building blocks of all modern LLMs.
++"""
++
++import torch
++import torch.nn as nn
++import torch.nn.functional as F
++import math
++from typing import Optional, Tuple
++
++
++def scaled_dot_product_attention(
++    query: torch.Tensor,
++    key: torch.Tensor,
++    value: torch.Tensor,
++    mask: Optional[torch.Tensor] = None,
++    dropout: float = 0.0,
++    training: bool = True
++) -> Tuple[torch.Tensor, torch.Tensor]:
++    """
++    Compute scaled dot-product attention.
++
++    This is the core attention computation described in "Attention Is All You Need":
++        Attention(Q, K, V) = softmax(Q @ K^T / sqrt(d_k)) @ V
++
++    Args:
++        query: Query tensor of shape (batch_size, seq_len, d_k) or
++               (batch_size, n_heads, seq_len, d_k)
++        key: Key tensor of same shape as query
++        value: Value tensor of same shape as query
++        mask: Optional attention mask. Use -inf for positions to ignore.
++              Shape: (seq_len, seq_len) or (batch_size, 1, seq_len, seq_len)
++        dropout: Dropout probability for attention weights
++        training: Whether in training mode (affects dropout)
++
++    Returns:
++        output: Attention output of same shape as input
++        attention_weights: Attention probability matrix
++
++    Example:
++        >>> Q = torch.randn(2, 10, 64)  # batch=2, seq_len=10, d_k=64
++        >>> K = torch.randn(2, 10, 64)
++        >>> V = torch.randn(2, 10, 64)
++        >>> output, weights = scaled_dot_product_attention(Q, K, V)
++        >>> print(output.shape)  # torch.Size([2, 10, 64])
++    """
++    # Get the dimension of keys for scaling
++    # This prevents the dot products from growing too large
++    d_k = query.size(-1)
++
++    # Step 1: Compute attention scores
++    # Q @ K^T gives us (batch, seq_len, seq_len) similarity matrix
++    # Each row i contains similarity scores between position i and all positions
++    attention_scores = torch.matmul(query, key.transpose(-2, -1))
++
++    # Step 2: Scale by sqrt(d_k)
++    # Without scaling, for large d_k, dot products can be very large,
++    # pushing softmax into regions with tiny gradients
++    attention_scores = attention_scores / math.sqrt(d_k)
++
++    # Step 3: Apply mask (if provided)
++    # Mask is used for:
++    # - Causal attention (preventing attending to future tokens)
++    # - Padding masks (ignoring pad tokens)
++    if mask is not None:
++        # Replace masked positions with -inf so softmax gives 0
++        attention_scores = attention_scores.masked_fill(mask == 0, float('-inf'))
++
++    # Step 4: Apply softmax to get attention weights (probabilities)
++    # Each row now sums to 1, representing a probability distribution
++    attention_weights = F.softmax(attention_scores, dim=-1)
++
++    # Step 5: Apply dropout (regularization during training)
++    if dropout > 0.0 and training:
++        attention_weights = F.dropout(attention_weights, p=dropout, training=training)
++
++    # Step 6: Multiply by values to get final output
++    # This is a weighted sum of values, where weights come from attention
++    output = torch.matmul(attention_weights, value)
++
++    return output, attention_weights
++
++
++def create_causal_mask(seq_len: int, device: torch.device = None) -> torch.Tensor:
++    """
++    Create a causal (autoregressive) attention mask.
++
++    In causal attention, each position can only attend to itself and previous positions.
++    This is essential for autoregressive text generation where we predict one token at a time.
++
++    Args:
++        seq_len: Length of the sequence
++        device: Device to create the mask on
++
++    Returns:
++        Causal mask of shape (seq_len, seq_len)
++        1 where attention is allowed, 0 where it should be blocked
++
++    Example:
++        >>> mask = create_causal_mask(4)
++        >>> print(mask)
++        tensor([[1., 0., 0., 0.],
++                [1., 1., 0., 0.],
++                [1., 1., 1., 0.],
++                [1., 1., 1., 1.]])
++    """
++    # torch.tril creates a lower triangular matrix
++    # This allows each position to attend to itself and all previous positions
++    mask = torch.tril(torch.ones(seq_len, seq_len, device=device))
++    return mask
++
++
++class MultiHeadAttention(nn.Module):
++    """
++    Multi-Head Attention mechanism.
++
++    Instead of performing a single attention function, multi-head attention
++    projects Q, K, V into multiple subspaces ("heads"), performs attention
++    in parallel, and concatenates the results.
++
++    This allows the model to jointly attend to information from different
++    representation subspaces at different positions.
++
++    Formula:
++        MultiHead(Q, K, V) = Concat(head_1, ..., head_h) @ W_O
++        where head_i = Attention(Q @ W_Q_i, K @ W_K_i, V @ W_V_i)
++
++    Args:
++        d_model: Model dimension (input/output size)
++        n_heads: Number of attention heads
++        dropout: Dropout probability
++
++    Example:
++        >>> mha = MultiHeadAttention(d_model=512, n_heads=8)
++        >>> x = torch.randn(2, 10, 512)  # batch=2, seq_len=10, d_model=512
++        >>> output = mha(x, x, x)
++        >>> print(output.shape)  # torch.Size([2, 10, 512])
++    """
++
++    def __init__(self, d_model: int, n_heads: int, dropout: float = 0.0):
++        super().__init__()
++
++        # Validate that d_model is divisible by n_heads
++        assert d_model % n_heads == 0, \
++            f"d_model ({d_model}) must be divisible by n_heads ({n_heads})"
++
++        self.d_model = d_model
++        self.n_heads = n_heads
++        self.d_k = d_model // n_heads  # Dimension per head
++        self.dropout = dropout
++
++        # Linear projections for Q, K, V
++        # These learn what to query, what keys to compare, and what values to retrieve
++        self.W_q = nn.Linear(d_model, d_model, bias=False)
++        self.W_k = nn.Linear(d_model, d_model, bias=False)
++        self.W_v = nn.Linear(d_model, d_model, bias=False)
++
++        # Output projection
++        # Combines the multi-head outputs back to d_model dimensions
++        self.W_o = nn.Linear(d_model, d_model, bias=False)
++
++        # For storing attention weights (useful for visualization)
++        self.attention_weights = None
++
++    def forward(
++        self,
++        query: torch.Tensor,
++        key: torch.Tensor,
++        value: torch.Tensor,
++        mask: Optional[torch.Tensor] = None
++    ) -> torch.Tensor:
++        """
++        Forward pass of multi-head attention.
++
++        Args:
++            query: Query tensor of shape (batch_size, seq_len, d_model)
++            key: Key tensor of shape (batch_size, seq_len, d_model)
++            value: Value tensor of shape (batch_size, seq_len, d_model)
++            mask: Optional attention mask
++
++        Returns:
++            Output tensor of shape (batch_size, seq_len, d_model)
++        """
++        batch_size = query.size(0)
++        seq_len = query.size(1)
++
++        # Step 1: Project Q, K, V using learned linear transformations
++        Q = self.W_q(query)  # (batch, seq_len, d_model)
++        K = self.W_k(key)
++        V = self.W_v(value)
++
++        # Step 2: Reshape for multi-head attention
++        # Split d_model into n_heads × d_k, then transpose for attention computation
++        # (batch, seq_len, d_model) -> (batch, seq_len, n_heads, d_k) -> (batch, n_heads, seq_len, d_k)
++        Q = Q.view(batch_size, seq_len, self.n_heads, self.d_k).transpose(1, 2)
++        K = K.view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
++        V = V.view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
++
++        # Step 3: Apply scaled dot-product attention to each head
++        # Attention is applied in parallel across all heads
++        attn_output, self.attention_weights = scaled_dot_product_attention(
++            Q, K, V,
++            mask=mask,
++            dropout=self.dropout,
++            training=self.training
++        )
++
++        # Step 4: Concatenate heads
++        # (batch, n_heads, seq_len, d_k) -> (batch, seq_len, n_heads, d_k) -> (batch, seq_len, d_model)
++        attn_output = attn_output.transpose(1, 2).contiguous()
++        attn_output = attn_output.view(batch_size, seq_len, self.d_model)
++
++        # Step 5: Final linear projection
++        output = self.W_o(attn_output)
++
++        return output
++
++    def get_attention_weights(self) -> Optional[torch.Tensor]:
++        """Return the attention weights from the last forward pass."""
++        return self.attention_weights
++
++
++def count_parameters(model: nn.Module) -> int:
++    """
++    Count the total number of trainable parameters in a model.
++
++    Args:
++        model: A PyTorch model
++
++    Returns:
++        Total number of trainable parameters
++
++    Example:
++        >>> mha = MultiHeadAttention(d_model=512, n_heads=8)
++        >>> params = count_parameters(mha)
++        >>> print(f"Parameters: {params:,}")  # Parameters: 1,048,576
++    """
++    return sum(p.numel() for p in model.parameters() if p.requires_grad)
++
++
++# ============================================================================
++# DEMONSTRATION AND TESTING
++# ============================================================================
++
++if __name__ == "__main__":
++    print("=" * 60)
++    print("Lesson 1: Attention Mechanism Demonstration")
++    print("=" * 60)
++
++    # Set random seed for reproducibility
++    torch.manual_seed(42)
++
++    # Configuration
++    batch_size = 2
++    seq_len = 10
++    d_model = 512
++    n_heads = 8
++
++    print(f"\nConfiguration:")
++    print(f"  Batch size: {batch_size}")
++    print(f"  Sequence length: {seq_len}")
++    print(f"  Model dimension (d_model): {d_model}")
++    print(f"  Number of heads: {n_heads}")
++    print(f"  Dimension per head (d_k): {d_model // n_heads}")
++
++    # Create sample input
++    x = torch.randn(batch_size, seq_len, d_model)
++    print(f"\nInput shape: {x.shape}")
++
++    # Test 1: Scaled Dot-Product Attention
++    print("\n" + "-" * 40)
++    print("Test 1: Scaled Dot-Product Attention")
++    print("-" * 40)
++
++    output, weights = scaled_dot_product_attention(x, x, x)
++    print(f"Output shape: {output.shape}")
++    print(f"Attention weights shape: {weights.shape}")
++    print(f"Attention weights sum (should be ~1.0): {weights[0, 0].sum().item():.4f}")
++
++    # Test 2: Causal Mask
++    print("\n" + "-" * 40)
++    print("Test 2: Causal Mask")
++    print("-" * 40)
++
++    causal_mask = create_causal_mask(5)
++    print("Causal mask (5x5):")
++    print(causal_mask)
++
++    # Apply causal attention
++    x_small = torch.randn(1, 5, d_model)
++    output_causal, weights_causal = scaled_dot_product_attention(
++        x_small, x_small, x_small, mask=causal_mask
++    )
++    print(f"\nCausal attention weights (position 4 can see positions 0-4):")
++    print(weights_causal[0])
++
++    # Test 3: Multi-Head Attention
++    print("\n" + "-" * 40)
++    print("Test 3: Multi-Head Attention")
++    print("-" * 40)
++
++    mha = MultiHeadAttention(d_model=d_model, n_heads=n_heads)
++    output_mha = mha(x, x, x)
++    print(f"Output shape: {output_mha.shape}")
++
++    # Count parameters
++    params = count_parameters(mha)
++    print(f"\nMulti-Head Attention Parameters:")
++    print(f"  W_q: {d_model} × {d_model} = {d_model * d_model:,}")
++    print(f"  W_k: {d_model} × {d_model} = {d_model * d_model:,}")
++    print(f"  W_v: {d_model} × {d_model} = {d_model * d_model:,}")
++    print(f"  W_o: {d_model} × {d_model} = {d_model * d_model:,}")
++    print(f"  Total: {params:,}")
++
++    # Test 4: Attention Visualization
++    print("\n" + "-" * 40)
++    print("Test 4: Attention Pattern Analysis")
++    print("-" * 40)
++
++    # Get attention weights from MHA
++    attn_weights = mha.get_attention_weights()
++    print(f"Attention weights shape: {attn_weights.shape}")
++    print(f"  (batch={attn_weights.shape[0]}, heads={attn_weights.shape[1]}, "
++          f"query_len={attn_weights.shape[2]}, key_len={attn_weights.shape[3]})")
++
++    # Analyze attention distribution
++    avg_attention = attn_weights.mean(dim=(0, 1))  # Average over batch and heads
++    print(f"\nAverage attention entropy: {-(avg_attention * avg_attention.log()).sum(dim=-1).mean().item():.4f}")
++
++    print("\n" + "=" * 60)
++    print("All tests passed!")
++    print("=" * 60)
+diff --git a/resources/lesson-1-llm-basics/code/positional_encoding.py b/resources/lesson-1-llm-basics/code/positional_encoding.py
+new file mode 100644
+index 0000000..6f27d48
+--- /dev/null
++++ b/resources/lesson-1-llm-basics/code/positional_encoding.py
+@@ -0,0 +1,344 @@
++"""
++Lesson 1: Positional Encoding Implementation
++
++This module implements positional encodings for Transformer models.
++Since attention has no inherent notion of position, we need to inject
++position information into the input embeddings.
++
++Implementations included:
++1. Sinusoidal Positional Encoding (original Transformer)
++2. Rotary Position Embedding (RoPE) - used in Llama, GPT-NeoX
++"""
++
++import torch
++import torch.nn as nn
++import math
++from typing import Optional
++
++
++class SinusoidalPositionalEncoding(nn.Module):
++    """
++    Sinusoidal Positional Encoding from "Attention Is All You Need".
++
++    Uses sine and cosine functions of different frequencies to encode position:
++        PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
++        PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
++
++    Properties:
++    - Deterministic (no learnable parameters)
++    - Can extrapolate to longer sequences than seen in training
++    - Relative positions can be represented as linear functions
++
++    Args:
++        d_model: Embedding dimension
++        max_len: Maximum sequence length
++        dropout: Dropout probability
++
++    Example:
++        >>> pe = SinusoidalPositionalEncoding(d_model=512, max_len=1000)
++        >>> x = torch.randn(2, 100, 512)  # batch=2, seq_len=100
++        >>> x_with_pos = pe(x)
++        >>> print(x_with_pos.shape)  # torch.Size([2, 100, 512])
++    """
++
++    def __init__(
++        self,
++        d_model: int,
++        max_len: int = 5000,
++        dropout: float = 0.1
++    ):
++        super().__init__()
++        self.dropout = nn.Dropout(p=dropout)
++
++        # Create the positional encoding matrix
++        # Shape: (max_len, d_model)
++        pe = torch.zeros(max_len, d_model)
++
++        # Position indices: [0, 1, 2, ..., max_len-1]
++        # Shape: (max_len, 1)
++        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
++
++        # Compute the divisor term: 10000^(2i/d_model)
++        # This creates different frequencies for each dimension
++        # Using log-space for numerical stability:
++        #   10000^(2i/d_model) = exp(2i * log(10000) / d_model)
++        div_term = torch.exp(
++            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
++        )
++
++        # Apply sin to even indices (0, 2, 4, ...)
++        pe[:, 0::2] = torch.sin(position * div_term)
++
++        # Apply cos to odd indices (1, 3, 5, ...)
++        pe[:, 1::2] = torch.cos(position * div_term)
++
++        # Add batch dimension and register as buffer (not a parameter)
++        # Shape: (1, max_len, d_model)
++        pe = pe.unsqueeze(0)
++        self.register_buffer('pe', pe)
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        """
++        Add positional encoding to input embeddings.
++
++        Args:
++            x: Input tensor of shape (batch_size, seq_len, d_model)
++
++        Returns:
++            Positionally encoded tensor of same shape
++        """
++        seq_len = x.size(1)
++
++        # Add positional encoding (broadcasting handles batch dimension)
++        # Only use the first seq_len positions
++        x = x + self.pe[:, :seq_len, :]
++
++        return self.dropout(x)
++
++    def get_encoding(self, seq_len: int) -> torch.Tensor:
++        """
++        Get the positional encoding for a given sequence length.
++
++        Args:
++            seq_len: Sequence length
++
++        Returns:
++            Positional encoding of shape (seq_len, d_model)
++        """
++        return self.pe[0, :seq_len, :]
++
++
++class RotaryPositionalEmbedding(nn.Module):
++    """
++    Rotary Position Embedding (RoPE) from "RoFormer: Enhanced Transformer
++    with Rotary Position Embedding".
++
++    RoPE encodes position by rotating the query and key vectors. This has
++    several advantages:
++    - Relative position information is naturally encoded in attention
++    - Can extrapolate to longer sequences
++    - No need to add encodings to embeddings
++
++    Used in: Llama, Llama 2, GPT-NeoX, PaLM
++
++    The idea: Apply a rotation to Q and K based on their position.
++    When computing Q·K^T, the rotation encodes relative position.
++
++    Args:
++        d_model: Model dimension
++        max_seq_len: Maximum sequence length
++        base: Base for frequency computation (default: 10000)
++
++    Example:
++        >>> rope = RotaryPositionalEmbedding(d_model=64, max_seq_len=1000)
++        >>> q = torch.randn(2, 8, 100, 64)  # batch, heads, seq_len, head_dim
++        >>> k = torch.randn(2, 8, 100, 64)
++        >>> q_rot, k_rot = rope(q, k)
++    """
++
++    def __init__(
++        self,
++        d_model: int,
++        max_seq_len: int = 2048,
++        base: float = 10000.0
++    ):
++        super().__init__()
++        self.d_model = d_model
++        self.max_seq_len = max_seq_len
++        self.base = base
++
++        # Compute inverse frequencies
++        # These determine how fast each dimension rotates with position
++        inv_freq = 1.0 / (
++            base ** (torch.arange(0, d_model, 2).float() / d_model)
++        )
++        self.register_buffer('inv_freq', inv_freq)
++
++        # Precompute cos and sin tables
++        self._precompute_cache(max_seq_len)
++
++    def _precompute_cache(self, seq_len: int):
++        """Precompute cos and sin values for efficiency."""
++        # Position indices
++        t = torch.arange(seq_len, device=self.inv_freq.device)
++
++        # Outer product: (seq_len,) × (d_model/2,) -> (seq_len, d_model/2)
++        freqs = torch.einsum('i,j->ij', t, self.inv_freq)
++
++        # Duplicate each frequency (for pairs of dimensions)
++        # Shape: (seq_len, d_model)
++        emb = torch.cat((freqs, freqs), dim=-1)
++
++        # Compute and cache cos/sin
++        self.register_buffer('cos_cached', emb.cos())
++        self.register_buffer('sin_cached', emb.sin())
++
++    def _rotate_half(self, x: torch.Tensor) -> torch.Tensor:
++        """
++        Rotate half the hidden dims of the input.
++
++        This implements the rotation by splitting x into two halves
++        and swapping them with a sign change.
++        """
++        x1 = x[..., :x.shape[-1] // 2]
++        x2 = x[..., x.shape[-1] // 2:]
++        return torch.cat((-x2, x1), dim=-1)
++
++    def forward(
++        self,
++        q: torch.Tensor,
++        k: torch.Tensor,
++        positions: Optional[torch.Tensor] = None
++    ) -> tuple:
++        """
++        Apply rotary position embeddings to query and key tensors.
++
++        Args:
++            q: Query tensor of shape (batch, n_heads, seq_len, head_dim)
++            k: Key tensor of shape (batch, n_heads, seq_len, head_dim)
++            positions: Optional position indices. If None, uses [0, 1, 2, ...]
++
++        Returns:
++            Tuple of (rotated_q, rotated_k)
++        """
++        seq_len = q.shape[-2]
++
++        # Get cos and sin for the sequence length
++        cos = self.cos_cached[:seq_len]
++        sin = self.sin_cached[:seq_len]
++
++        # Reshape for broadcasting: (seq_len, d_model) -> (1, 1, seq_len, d_model)
++        cos = cos.unsqueeze(0).unsqueeze(0)
++        sin = sin.unsqueeze(0).unsqueeze(0)
++
++        # Apply rotation: x * cos + rotate_half(x) * sin
++        # This is equivalent to a 2D rotation matrix applied to pairs of dims
++        q_rot = (q * cos) + (self._rotate_half(q) * sin)
++        k_rot = (k * cos) + (self._rotate_half(k) * sin)
++
++        return q_rot, k_rot
++
++
++def visualize_positional_encoding(pe_module: SinusoidalPositionalEncoding, seq_len: int = 100):
++    """
++    Visualize positional encodings (prints a text-based representation).
++
++    Args:
++        pe_module: A SinusoidalPositionalEncoding module
++        seq_len: Number of positions to visualize
++    """
++    encoding = pe_module.get_encoding(seq_len).cpu().numpy()
++
++    print(f"\nPositional Encoding Shape: {encoding.shape}")
++    print(f"  (seq_len={seq_len}, d_model={encoding.shape[1]})")
++
++    print("\nFirst 5 positions, first 8 dimensions:")
++    print("-" * 50)
++    for pos in range(min(5, seq_len)):
++        values = encoding[pos, :8]
++        formatted = " ".join(f"{v:7.4f}" for v in values)
++        print(f"Pos {pos}: {formatted} ...")
++
++    print("\nNote: Even dimensions use sin, odd dimensions use cos")
++    print("      Lower dimensions oscillate faster than higher ones")
++
++
++# ============================================================================
++# DEMONSTRATION AND TESTING
++# ============================================================================
++
++if __name__ == "__main__":
++    print("=" * 60)
++    print("Lesson 1: Positional Encoding Demonstration")
++    print("=" * 60)
++
++    torch.manual_seed(42)
++
++    # Configuration
++    d_model = 512
++    max_len = 1000
++    batch_size = 2
++    seq_len = 100
++
++    # Test 1: Sinusoidal Positional Encoding
++    print("\n" + "-" * 40)
++    print("Test 1: Sinusoidal Positional Encoding")
++    print("-" * 40)
++
++    pe = SinusoidalPositionalEncoding(d_model=d_model, max_len=max_len, dropout=0.0)
++
++    # Create sample input (simulating word embeddings)
++    x = torch.randn(batch_size, seq_len, d_model)
++    print(f"Input shape: {x.shape}")
++
++    # Apply positional encoding
++    x_encoded = pe(x)
++    print(f"Output shape: {x_encoded.shape}")
++
++    # Verify positional encoding was added
++    encoding = pe.get_encoding(seq_len)
++    print(f"Encoding shape: {encoding.shape}")
++
++    # Show that different positions have different encodings
++    print("\nDistance between position encodings:")
++    dist_01 = (encoding[0] - encoding[1]).norm().item()
++    dist_010 = (encoding[0] - encoding[10]).norm().item()
++    dist_050 = (encoding[0] - encoding[50]).norm().item()
++    print(f"  Position 0 vs 1:  {dist_01:.4f}")
++    print(f"  Position 0 vs 10: {dist_010:.4f}")
++    print(f"  Position 0 vs 50: {dist_050:.4f}")
++
++    # Visualize encodings
++    visualize_positional_encoding(pe, seq_len=10)
++
++    # Test 2: Rotary Position Embedding
++    print("\n" + "-" * 40)
++    print("Test 2: Rotary Position Embedding (RoPE)")
++    print("-" * 40)
++
++    head_dim = 64
++    n_heads = 8
++
++    rope = RotaryPositionalEmbedding(d_model=head_dim, max_seq_len=1000)
++
++    # Create sample Q and K tensors
++    q = torch.randn(batch_size, n_heads, seq_len, head_dim)
++    k = torch.randn(batch_size, n_heads, seq_len, head_dim)
++
++    print(f"Query shape: {q.shape}")
++    print(f"Key shape: {k.shape}")
++
++    # Apply RoPE
++    q_rot, k_rot = rope(q, k)
++    print(f"Rotated query shape: {q_rot.shape}")
++    print(f"Rotated key shape: {k_rot.shape}")
++
++    # Verify rotation preserves norm (approximately)
++    q_norm_before = q[0, 0, 0].norm().item()
++    q_norm_after = q_rot[0, 0, 0].norm().item()
++    print(f"\nNorm preservation check:")
++    print(f"  Q norm before: {q_norm_before:.4f}")
++    print(f"  Q norm after:  {q_norm_after:.4f}")
++    print(f"  Difference:    {abs(q_norm_before - q_norm_after):.6f}")
++
++    # Test 3: Compare attention with position info
++    print("\n" + "-" * 40)
++    print("Test 3: RoPE Effect on Attention")
++    print("-" * 40)
++
++    # Compute attention scores with and without RoPE
++    # Without RoPE
++    attn_scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(head_dim)
++
++    # With RoPE
++    attn_scores_rope = torch.matmul(q_rot, k_rot.transpose(-2, -1)) / math.sqrt(head_dim)
++
++    print("Attention scores (first head, positions 0-4):")
++    print("\nWithout RoPE:")
++    print(attn_scores[0, 0, :5, :5].detach().numpy().round(3))
++    print("\nWith RoPE:")
++    print(attn_scores_rope[0, 0, :5, :5].detach().numpy().round(3))
++
++    print("\n" + "=" * 60)
++    print("All tests passed!")
++    print("=" * 60)
+diff --git a/resources/lesson-1-llm-basics/code/transformer_block.py b/resources/lesson-1-llm-basics/code/transformer_block.py
+new file mode 100644
+index 0000000..0ba85e2
+--- /dev/null
++++ b/resources/lesson-1-llm-basics/code/transformer_block.py
+@@ -0,0 +1,511 @@
++"""
++Lesson 1: Transformer Block Implementation
++
++This module implements a complete Transformer decoder block, the fundamental
++building block of modern LLMs like GPT and Llama.
++
++Components:
++1. RMSNorm (used in Llama) vs LayerNorm (used in GPT)
++2. Feed-Forward Network (FFN) with SwiGLU activation
++3. Complete Transformer Block with residual connections
++"""
++
++import torch
++import torch.nn as nn
++import torch.nn.functional as F
++import math
++from typing import Optional
++
++from attention import MultiHeadAttention, create_causal_mask
++
++
++class RMSNorm(nn.Module):
++    """
++    Root Mean Square Layer Normalization.
++
++    RMSNorm is a simplification of LayerNorm that only normalizes by the
++    root mean square (no mean centering). Used in Llama for efficiency.
++
++    Formula:
++        RMSNorm(x) = x / RMS(x) * gamma
++        where RMS(x) = sqrt(mean(x^2) + eps)
++
++    Args:
++        d_model: Model dimension
++        eps: Small constant for numerical stability
++
++    Example:
++        >>> norm = RMSNorm(512)
++        >>> x = torch.randn(2, 10, 512)
++        >>> output = norm(x)
++    """
++
++    def __init__(self, d_model: int, eps: float = 1e-6):
++        super().__init__()
++        self.eps = eps
++        # Learnable scale parameter (gamma)
++        self.weight = nn.Parameter(torch.ones(d_model))
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        # Compute RMS: sqrt(mean(x^2))
++        rms = torch.sqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
++        # Normalize and scale
++        return x / rms * self.weight
++
++
++class LayerNorm(nn.Module):
++    """
++    Standard Layer Normalization (for comparison with RMSNorm).
++
++    LayerNorm normalizes across the feature dimension, centering around
++    the mean and scaling by standard deviation.
++
++    Formula:
++        LayerNorm(x) = (x - mean(x)) / std(x) * gamma + beta
++
++    Args:
++        d_model: Model dimension
++        eps: Small constant for numerical stability
++
++    Example:
++        >>> norm = LayerNorm(512)
++        >>> x = torch.randn(2, 10, 512)
++        >>> output = norm(x)
++    """
++
++    def __init__(self, d_model: int, eps: float = 1e-6):
++        super().__init__()
++        self.eps = eps
++        self.weight = nn.Parameter(torch.ones(d_model))  # gamma
++        self.bias = nn.Parameter(torch.zeros(d_model))   # beta
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        mean = x.mean(dim=-1, keepdim=True)
++        std = x.std(dim=-1, keepdim=True, unbiased=False)
++        return (x - mean) / (std + self.eps) * self.weight + self.bias
++
++
++class FeedForward(nn.Module):
++    """
++    Position-wise Feed-Forward Network.
++
++    The FFN applies two linear transformations with a non-linear activation
++    in between. This is applied to each position independently.
++
++    Original Transformer:
++        FFN(x) = ReLU(x @ W1 + b1) @ W2 + b2
++
++    Llama uses SwiGLU (Swish-Gated Linear Unit):
++        FFN(x) = (Swish(x @ W1) * (x @ W3)) @ W2
++
++    Args:
++        d_model: Model dimension
++        d_ff: Hidden dimension (typically 4 * d_model, or 8/3 * d_model for SwiGLU)
++        dropout: Dropout probability
++        use_swiglu: Whether to use SwiGLU activation (Llama-style)
++
++    Example:
++        >>> ffn = FeedForward(d_model=512, d_ff=2048)
++        >>> x = torch.randn(2, 10, 512)
++        >>> output = ffn(x)
++    """
++
++    def __init__(
++        self,
++        d_model: int,
++        d_ff: Optional[int] = None,
++        dropout: float = 0.0,
++        use_swiglu: bool = True
++    ):
++        super().__init__()
++
++        # Default hidden dimension
++        if d_ff is None:
++            # Llama uses 8/3 * d_model (rounded to multiple of 256)
++            d_ff = int(8 / 3 * d_model)
++            d_ff = ((d_ff + 255) // 256) * 256
++
++        self.use_swiglu = use_swiglu
++
++        if use_swiglu:
++            # SwiGLU: requires 3 weight matrices
++            self.w1 = nn.Linear(d_model, d_ff, bias=False)  # Gate projection
++            self.w2 = nn.Linear(d_ff, d_model, bias=False)  # Down projection
++            self.w3 = nn.Linear(d_model, d_ff, bias=False)  # Up projection
++        else:
++            # Standard FFN: 2 weight matrices
++            self.w1 = nn.Linear(d_model, d_ff, bias=True)
++            self.w2 = nn.Linear(d_ff, d_model, bias=True)
++
++        self.dropout = nn.Dropout(dropout)
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        if self.use_swiglu:
++            # SwiGLU: Swish(x @ W1) * (x @ W3)
++            # Swish(x) = x * sigmoid(x), also called SiLU
++            return self.dropout(
++                self.w2(F.silu(self.w1(x)) * self.w3(x))
++            )
++        else:
++            # Standard: ReLU(x @ W1) @ W2
++            return self.dropout(
++                self.w2(F.relu(self.w1(x)))
++            )
++
++
++class TransformerBlock(nn.Module):
++    """
++    A single Transformer decoder block.
++
++    This implements the core building block of decoder-only LLMs.
++    Architecture (Pre-Norm, as used in Llama):
++
++        x ─────┬────> RMSNorm ──> Masked Multi-Head Attention ──┐
++               │                                                 │
++               └────────────────────── Add <────────────────────┘
++                                        │
++               ┌────────────────────────┤
++               │                        │
++               │         ┌──> RMSNorm ──┴──> Feed-Forward ──┐
++               │         │                                   │
++               └─────────┴────────────── Add <──────────────┘
++                                          │
++                                       output
++
++    Args:
++        d_model: Model dimension
++        n_heads: Number of attention heads
++        d_ff: Feed-forward hidden dimension
++        dropout: Dropout probability
++        use_swiglu: Use SwiGLU activation in FFN
++
++    Example:
++        >>> block = TransformerBlock(d_model=512, n_heads=8)
++        >>> x = torch.randn(2, 10, 512)
++        >>> output = block(x)
++    """
++
++    def __init__(
++        self,
++        d_model: int,
++        n_heads: int,
++        d_ff: Optional[int] = None,
++        dropout: float = 0.0,
++        use_swiglu: bool = True
++    ):
++        super().__init__()
++
++        # Layer normalization (pre-norm architecture)
++        self.norm1 = RMSNorm(d_model)
++        self.norm2 = RMSNorm(d_model)
++
++        # Multi-head self-attention
++        self.attention = MultiHeadAttention(
++            d_model=d_model,
++            n_heads=n_heads,
++            dropout=dropout
++        )
++
++        # Feed-forward network
++        self.feed_forward = FeedForward(
++            d_model=d_model,
++            d_ff=d_ff,
++            dropout=dropout,
++            use_swiglu=use_swiglu
++        )
++
++        self.dropout = nn.Dropout(dropout)
++
++    def forward(
++        self,
++        x: torch.Tensor,
++        mask: Optional[torch.Tensor] = None
++    ) -> torch.Tensor:
++        """
++        Forward pass through the Transformer block.
++
++        Args:
++            x: Input tensor of shape (batch_size, seq_len, d_model)
++            mask: Optional attention mask (causal mask for auto-regressive)
++
++        Returns:
++            Output tensor of same shape as input
++        """
++        # Self-attention with residual connection
++        # Pre-norm: normalize before attention
++        normed = self.norm1(x)
++        attn_out = self.attention(normed, normed, normed, mask=mask)
++        x = x + self.dropout(attn_out)  # Residual connection
++
++        # Feed-forward with residual connection
++        normed = self.norm2(x)
++        ff_out = self.feed_forward(normed)
++        x = x + self.dropout(ff_out)  # Residual connection
++
++        return x
++
++
++class SimpleTransformer(nn.Module):
++    """
++    A simple Transformer model for demonstration.
++
++    This combines:
++    - Token embedding
++    - Positional encoding (simple learned embeddings)
++    - Multiple Transformer blocks
++    - Output projection to vocabulary
++
++    This is a simplified version to understand the full architecture.
++
++    Args:
++        vocab_size: Size of vocabulary
++        d_model: Model dimension
++        n_heads: Number of attention heads
++        n_layers: Number of Transformer blocks
++        max_seq_len: Maximum sequence length
++        dropout: Dropout probability
++
++    Example:
++        >>> model = SimpleTransformer(vocab_size=32000, d_model=512, n_heads=8, n_layers=6)
++        >>> tokens = torch.randint(0, 32000, (2, 100))
++        >>> logits = model(tokens)
++        >>> print(logits.shape)  # torch.Size([2, 100, 32000])
++    """
++
++    def __init__(
++        self,
++        vocab_size: int,
++        d_model: int,
++        n_heads: int,
++        n_layers: int,
++        max_seq_len: int = 2048,
++        dropout: float = 0.0
++    ):
++        super().__init__()
++
++        self.d_model = d_model
++        self.max_seq_len = max_seq_len
++
++        # Token embedding layer
++        self.token_embedding = nn.Embedding(vocab_size, d_model)
++
++        # Positional embedding (learned, for simplicity)
++        self.position_embedding = nn.Embedding(max_seq_len, d_model)
++
++        # Transformer blocks
++        self.blocks = nn.ModuleList([
++            TransformerBlock(
++                d_model=d_model,
++                n_heads=n_heads,
++                dropout=dropout
++            )
++            for _ in range(n_layers)
++        ])
++
++        # Final layer norm
++        self.norm = RMSNorm(d_model)
++
++        # Output projection (to vocabulary)
++        self.output = nn.Linear(d_model, vocab_size, bias=False)
++
++        # Weight tying: share embedding weights with output projection
++        # This is a common technique to reduce parameters and improve performance
++        self.output.weight = self.token_embedding.weight
++
++        # Initialize weights
++        self._init_weights()
++
++    def _init_weights(self):
++        """Initialize weights with small values."""
++        for module in self.modules():
++            if isinstance(module, nn.Linear):
++                torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
++                if module.bias is not None:
++                    torch.nn.init.zeros_(module.bias)
++            elif isinstance(module, nn.Embedding):
++                torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
++
++    def forward(
++        self,
++        tokens: torch.Tensor,
++        mask: Optional[torch.Tensor] = None
++    ) -> torch.Tensor:
++        """
++        Forward pass through the Transformer.
++
++        Args:
++            tokens: Input token IDs of shape (batch_size, seq_len)
++            mask: Optional attention mask
++
++        Returns:
++            Logits of shape (batch_size, seq_len, vocab_size)
++        """
++        batch_size, seq_len = tokens.shape
++
++        # Create position indices
++        positions = torch.arange(seq_len, device=tokens.device)
++
++        # Get embeddings
++        tok_emb = self.token_embedding(tokens)      # (batch, seq_len, d_model)
++        pos_emb = self.position_embedding(positions)  # (seq_len, d_model)
++
++        # Combine token and position embeddings
++        x = tok_emb + pos_emb
++
++        # Create causal mask if not provided
++        if mask is None:
++            mask = create_causal_mask(seq_len, device=tokens.device)
++
++        # Apply Transformer blocks
++        for block in self.blocks:
++            x = block(x, mask=mask)
++
++        # Final normalization
++        x = self.norm(x)
++
++        # Project to vocabulary
++        logits = self.output(x)
++
++        return logits
++
++    def count_parameters(self) -> dict:
++        """
++        Count parameters in each component.
++
++        Returns:
++            Dictionary with parameter counts for each component
++        """
++        counts = {
++            "token_embedding": sum(p.numel() for p in self.token_embedding.parameters()),
++            "position_embedding": sum(p.numel() for p in self.position_embedding.parameters()),
++            "blocks": sum(p.numel() for p in self.blocks.parameters()),
++            "norm": sum(p.numel() for p in self.norm.parameters()),
++            "output": 0,  # Weight tied with embedding
++        }
++        counts["total"] = sum(counts.values())
++        return counts
++
++
++# ============================================================================
++# DEMONSTRATION AND TESTING
++# ============================================================================
++
++if __name__ == "__main__":
++    print("=" * 60)
++    print("Lesson 1: Transformer Block Demonstration")
++    print("=" * 60)
++
++    torch.manual_seed(42)
++
++    # Configuration
++    batch_size = 2
++    seq_len = 10
++    d_model = 512
++    n_heads = 8
++    n_layers = 6
++    vocab_size = 32000
++
++    # Test 1: RMSNorm vs LayerNorm
++    print("\n" + "-" * 40)
++    print("Test 1: RMSNorm vs LayerNorm")
++    print("-" * 40)
++
++    x = torch.randn(batch_size, seq_len, d_model)
++    rms_norm = RMSNorm(d_model)
++    layer_norm = LayerNorm(d_model)
++
++    rms_out = rms_norm(x)
++    ln_out = layer_norm(x)
++
++    print(f"Input shape: {x.shape}")
++    print(f"RMSNorm output shape: {rms_out.shape}")
++    print(f"LayerNorm output shape: {ln_out.shape}")
++
++    print(f"\nRMSNorm - mean: {rms_out.mean().item():.6f}, std: {rms_out.std().item():.4f}")
++    print(f"LayerNorm - mean: {ln_out.mean().item():.6f}, std: {ln_out.std().item():.4f}")
++
++    # Test 2: Feed-Forward Network
++    print("\n" + "-" * 40)
++    print("Test 2: Feed-Forward Network (SwiGLU)")
++    print("-" * 40)
++
++    ffn = FeedForward(d_model=d_model, use_swiglu=True)
++    ffn_out = ffn(x)
++    print(f"Input shape: {x.shape}")
++    print(f"Output shape: {ffn_out.shape}")
++
++    ffn_params = sum(p.numel() for p in ffn.parameters())
++    print(f"FFN parameters: {ffn_params:,}")
++
++    # Test 3: Transformer Block
++    print("\n" + "-" * 40)
++    print("Test 3: Transformer Block")
++    print("-" * 40)
++
++    block = TransformerBlock(d_model=d_model, n_heads=n_heads)
++    mask = create_causal_mask(seq_len)
++    block_out = block(x, mask=mask)
++
++    print(f"Input shape: {x.shape}")
++    print(f"Output shape: {block_out.shape}")
++
++    block_params = sum(p.numel() for p in block.parameters())
++    print(f"Block parameters: {block_params:,}")
++
++    # Test 4: Complete Transformer
++    print("\n" + "-" * 40)
++    print("Test 4: Complete Simple Transformer")
++    print("-" * 40)
++
++    model = SimpleTransformer(
++        vocab_size=vocab_size,
++        d_model=d_model,
++        n_heads=n_heads,
++        n_layers=n_layers,
++        max_seq_len=2048
++    )
++
++    # Create sample input (token IDs)
++    tokens = torch.randint(0, vocab_size, (batch_size, seq_len))
++    print(f"Input tokens shape: {tokens.shape}")
++
++    # Forward pass
++    logits = model(tokens)
++    print(f"Output logits shape: {logits.shape}")
++
++    # Parameter breakdown
++    param_counts = model.count_parameters()
++    print("\nParameter counts:")
++    for name, count in param_counts.items():
++        print(f"  {name}: {count:,}")
++
++    # Test 5: Gradient flow
++    print("\n" + "-" * 40)
++    print("Test 5: Gradient Flow Check")
++    print("-" * 40)
++
++    # Simple training step to verify gradients flow
++    target = torch.randint(0, vocab_size, (batch_size, seq_len))
++    loss = F.cross_entropy(
++        logits.view(-1, vocab_size),
++        target.view(-1)
++    )
++    loss.backward()
++
++    print(f"Loss: {loss.item():.4f}")
++    print(f"Gradient flows to embeddings: {model.token_embedding.weight.grad is not None}")
++    print(f"Gradient flows to first block: {model.blocks[0].attention.W_q.weight.grad is not None}")
++
++    # Check gradient magnitudes
++    grad_norms = []
++    for name, param in model.named_parameters():
++        if param.grad is not None:
++            grad_norms.append((name, param.grad.norm().item()))
++
++    print("\nSample gradient norms:")
++    for name, norm in grad_norms[:5]:
++        print(f"  {name}: {norm:.6f}")
++
++    print("\n" + "=" * 60)
++    print("All tests passed!")
++    print("=" * 60)
