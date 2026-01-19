@@ -1,3 +1,19 @@
+<!--
+================================================================================
+  本文件是 Marp 演示文稿源文件，不适合在 GitHub 上直接查看。
+
+  查看方式：
+  1. VS Code + Marp 插件：直接预览
+  2. 命令行：marp slides_cn.md -o slides_cn.html
+  3. 在线：https://marp.app/ 上传此文件
+
+  导出命令：
+  - PDF:  marp slides_cn.md -o slides_cn.pdf
+  - PPTX: marp slides_cn.md -o slides_cn.pptx
+  - HTML: marp slides_cn.md -o slides_cn.html
+================================================================================
+-->
+
 ---
 marp: true
 theme: default
