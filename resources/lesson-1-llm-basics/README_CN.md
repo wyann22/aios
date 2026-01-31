@@ -1,8 +1,14 @@
 # Lesson 1：LLM 基础（Tokenizer、Decoder-only Transformer、Attention、参数量）
 
-> **📌 课程定位说明**
->
-> 本课程主要侧重于 **AI Infra（基础设施/系统）** 角度，而非算法研究。因此在算法原理上不会讲得特别深入，对于 AI Infra 工程师来说，只需了解实现原理即可，不必深究数学推导细节。
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 12px; margin: 20px 0;">
+<h2 style="color: white; margin: 0 0 12px 0; font-size: 1.5em;">📌 课程定位说明</h2>
+<p style="color: white; font-size: 1.2em; line-height: 1.6; margin: 0;">
+本课程主要侧重于 <strong>AI Infra（基础设施/系统）</strong> 角度，而非算法研究。因此在算法原理上不会讲得特别深入，对于 AI Infra 工程师来说，只需了解实现原理即可，不必深究数学推导细节。
+</p>
+<p style="color: #e0e0e0; font-size: 1.1em; line-height: 1.6; margin: 12px 0 0 0;">
+🔖 本课程以 <strong style="color: #ffd700;">Qwen3-8B</strong> 的网络架构为例进行讲解，帮助大家理解现代 LLM 的核心组件和实现细节。
+</p>
+</div>
 
 - **Tokenizer**：文本 → token ID（数字）
 - **Decoder-only Transformer**：token ID → 词表上的 logits
