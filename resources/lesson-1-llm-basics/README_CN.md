@@ -181,14 +181,15 @@ class LayerNorm(nn.Module):
 
 **核心公式**：
 
-\[
+$$
 \text{RMSNorm}(x) = \gamma \cdot \frac{x}{\text{RMS}(x)}
-\]
+$$
 
 其中：
-\[
+
+$$
 \text{RMS}(x) = \sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}
-\]
+$$
 
 **关键区别**：
 
@@ -469,9 +470,9 @@ Qwen3 使用 `base=1000000`（而非原始的 10000），使低频成分变化�
 
 **核心公式**：
 
-\[
+$$
 \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V
-\]
+$$
 
 **核心实现**：
 
