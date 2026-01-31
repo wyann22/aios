@@ -1,5 +1,9 @@
 # Lesson 1：LLM 基础（Tokenizer、Decoder-only Transformer、Attention、参数量）
 
+> **📌 课程定位说明**
+>
+> 本课程主要侧重于 **AI Infra（基础设施/系统）** 角度，而非算法研究。因此在算法原理上不会讲得特别深入，对于 AI Infra 工程师来说，只需了解实现原理即可，不必深究数学推导细节。
+
 - **Tokenizer**：文本 → token ID（数字）
 - **Decoder-only Transformer**：token ID → 词表上的 logits
 - **生成（Generation）**：不断产生下一个 token ID，再 decode 回文本
@@ -100,23 +104,106 @@ class Embedding(nn.Module):
 
 ---
 
-### 3) RMSNorm：高效的层归一化
+### 3) LayerNorm 与 RMSNorm：层归一化
 
-Normalization（归一化）是 Transformer 训练稳定的关键。现代 LLM（如 Llama、Qwen）普遍使用 **RMSNorm** 替代传统的 LayerNorm。
+Normalization（归一化）是深度学习训练稳定的关键技术。没有归一化，深层网络很容易出现梯度爆炸或梯度消失。
 
-**LayerNorm vs RMSNorm**：
+#### 为什么需要归一化？
+
+神经网络每一层的输出分布会随着训练不断变化（Internal Covariate Shift），这会导致：
+- 后续层需要不断适应新的输入分布
+- 训练不稳定，需要更小的学习率
+- 收敛速度变慢
+
+归一化的目标：**将每一层的输出"拉回"到稳定的分布**（均值≈0，方差≈1）。
+
+#### LayerNorm 详解
+
+**核心公式**：
+
+对于输入向量 \(x = [x_1, x_2, ..., x_d]\)（d 是 hidden_size）：
+
+\[
+\text{LayerNorm}(x) = \gamma \cdot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta
+\]
+
+其中：
+- \(\mu = \frac{1}{d}\sum_{i=1}^{d} x_i\)（均值）
+- \(\sigma^2 = \frac{1}{d}\sum_{i=1}^{d} (x_i - \mu)^2\)（方差）
+- \(\gamma\)（scale）和 \(\beta\)（shift）是可学习参数
+- \(\epsilon\) 是防止除零的小常数（如 1e-6）
 
 ```
-LayerNorm:  x_norm = (x - mean(x)) / sqrt(var(x) + eps) * gamma + beta
-RMSNorm:    x_norm = x / sqrt(mean(x²) + eps) * gamma
+
+**LayerNorm 核心实现**：
+
+```python
+class LayerNorm(nn.Module):
+    def __init__(self, hidden_size: int, eps: float = 1e-6):
+        super().__init__()
+        self.gamma = nn.Parameter(torch.ones(hidden_size))   # 缩放参数
+        self.beta = nn.Parameter(torch.zeros(hidden_size))   # 平移参数
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, hidden_size)
+
+        # 1. 计算均值 (在最后一个维度上)
+        mean = x.mean(dim=-1, keepdim=True)
+
+        # 2. 计算方差
+        var = x.var(dim=-1, keepdim=True, unbiased=False)
+
+        # 3. 归一化: (x - mean) / sqrt(var + eps)
+        x_norm = (x - mean) / torch.sqrt(var + self.eps)
+
+        # 4. 缩放和平移: gamma * x_norm + beta
+        return self.gamma * x_norm + self.beta
 ```
 
-RMSNorm 更简单：
-- 不减均值
-- 不加偏置 beta
-- 计算更快
+**参数量**：`2 × hidden_size`（gamma 和 beta 各 hidden_size 个）
 
-**核心实现**：
+#### 为什么 γ 和 β 很重要？
+
+如果只做归一化（强制均值=0，方差=1），会限制网络的表达能力。通过可学习的 γ 和 β：
+
+- 网络可以"学习"恢复原始分布（如果需要的话）
+- 当 γ=σ, β=μ 时，相当于恒等变换（什么都不做）
+- 网络可以在"归一化"和"保持原样"之间自由选择
+
+#### RMSNorm：更简单的替代方案
+
+现代 LLM（如 Llama、Qwen、Mistral）普遍使用 **RMSNorm** 替代 LayerNorm。
+
+**核心公式**：
+
+\[
+\text{RMSNorm}(x) = \gamma \cdot \frac{x}{\text{RMS}(x)}
+\]
+
+其中：
+\[
+\text{RMS}(x) = \sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \epsilon}
+\]
+
+**关键区别**：
+
+| 特性 | LayerNorm | RMSNorm |
+|------|-----------|---------|
+| 减均值（中心化） | ✅ 是 | ❌ 否 |
+| 除标准差 | ✅ 是 | ❌ 否（除 RMS） |
+| 加偏置 β | ✅ 是 | ❌ 否 |
+| 参数量 | 2d | d |
+| 计算量 | 较多 | 较少 |
+
+**为什么 RMSNorm 有效**：
+
+研究表明，LayerNorm 的主要作用来自**缩放**（除以某个统计量），而不是**中心化**（减均值）。RMSNorm 去掉了中心化步骤，但保留了核心的缩放作用，同时：
+- 减少 ~50% 的计算量
+- 减少 50% 的参数量
+- 实验效果相当甚至更好
+
+**RMSNorm 核心实现**：
 
 ```python
 class RMSNorm(nn.Module):
@@ -135,16 +222,6 @@ class RMSNorm(nn.Module):
 ```
 
 **参数量**：`hidden_size`（只有 gamma，没有 beta）
-
-**在模型中的位置**：
-- **Pre-Norm 架构**（现代 LLM 常用）：先 Norm 再 Attention/MLP
-- 每个 Transformer 层有 **2 个 RMSNorm**：
-  1. `input_layernorm`：Attention 之前
-  2. `post_attention_layernorm`：MLP 之前
-
-```
-x ──► RMSNorm ──► Attention ──► +Residual ──► RMSNorm ──► MLP ──► +Residual
-```
 
 ---
 
@@ -244,6 +321,8 @@ RoPE (Llama, Qwen, ...)    →  旋转 Q 和 K 向量 ← 现代主流
 位置 m 的向量：旋转 m×θ 度
 ```
 
+![RoPE](images/rope.png)
+
 **数学原理**：
 
 对于 2D 向量，旋转矩阵为：
@@ -253,8 +332,11 @@ RoPE (Llama, Qwen, ...)    →  旋转 Q 和 K 向量 ← 现代主流
 [sin(mθ)   cos(mθ)] × [x₁] = [x₀·sin(mθ) + x₁·cos(mθ)]
 ```
 
-对于高维向量（如 head_dim=128），我们把它分成 64 对，每对使用不同频率的 θ：
+对于高维向量（如 head_dim=128），我们把它分成 64 对，每对使用不同频率的 θ。
 
+**论文中的数学描述** vs **PyTorch 实际实现**：
+
+论文中描述的是相邻维度配对：
 ```
 维度 0,1:  使用 θ₀ = base^(-0/d)     → 高频，变化快
 维度 2,3:  使用 θ₁ = base^(-2/d)     →
@@ -262,6 +344,21 @@ RoPE (Llama, Qwen, ...)    →  旋转 Q 和 K 向量 ← 现代主流
    ...
 维度 126,127: 使用 θ₆₃ = base^(-126/d) → 低频，变化慢
 ```
+
+但 **PyTorch 实际实现是前后半配对**（以 head_dim=4 为例）：
+```
+论文描述:    (0,1) 用 θ₀,  (2,3) 用 θ₁
+PyTorch实现: (0,2) 用 θ₀,  (1,3) 用 θ₁
+```
+
+这是因为 `rotate_half` 函数将向量分成前后两半，而不是交错取相邻维度：
+```python
+x1 = x[..., :2]   # [x₀, x₁] 前半
+x2 = x[..., 2:]   # [x₂, x₃] 后半
+rotate_half(x) = [-x₂, -x₃, x₀, x₁]
+```
+
+**两种方式数学上完全等价**，只是维度排列不同。PyTorch 这样实现是为了利用连续内存访问，避免交错索引带来的性能损失。
 
 其中 `base` 通常是 10000（原始 Transformer）或 1000000（Qwen3 长上下文）。
 

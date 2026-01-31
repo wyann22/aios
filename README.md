@@ -1,42 +1,71 @@
-# AIOS - LLM Inference Learning Project
+# AIOS: Introduction to LLM Inference (Learning Project)
 
-This is a hands-on learning project designed to teach LLM inference fundamentals to anyone interested in AI and Large Language Models. Through step-by-step implementation of an LLM inference framework, you'll build essential functionality from the ground up, progressing from foundational concepts to advanced techniques.
+Have you ever wondered how ChatGPT generates responses? How a model with billions of parameters actually runs on your GPU? Or why inference optimization matters so much?
 
-## Course Curriculum
+AIOS is a hands-on learning project where you build an LLM inference framework from scratch. By the end, you won’t just *use* LLMs—you’ll understand how inference works under the hood.
 
-### Module 1: Foundations
-1. **LLM Basics** - Understanding transformer architecture, attention mechanisms, and model parameters
-2. **PyTorch Fundamentals** - Tensor operations, autograd, and model building essentials
+## Who This Is For
 
-### Module 2: Model Execution
-3. **Running Llama2 with PyTorch** - Loading pre-trained models and performing inference
-4. **Tokenization** - Implementing and understanding tokenizers (BPE, SentencePiece)
-5. **Text Generation** - Autoregressive generation, sampling strategies (greedy, top-k, top-p, temperature)
+- **Software engineers** curious about AI/ML systems
+- **ML practitioners** who want to understand inference beyond training
+- **System engineers** interested in GPU programming and optimization
+- **Students** looking for practical, implementable knowledge
 
-### Module 3: Optimization Techniques
-6. **Memory Management** - KV-cache implementation, memory-efficient attention
-7. **Quantization** - INT8/INT4 quantization for reduced memory footprint
-8. **BatchProcessing** - Efficient batch inference and dynamic batching
+## What You’ll Build
 
-### Module 4: Advanced Inference
-9. **Inference Acceleration** - Flash Attention, operator fusion, and kernel optimization
-10. **Multi-GPU Inference** - Tensor parallelism and pipeline parallelism
-11. **Serving Optimization** - Continuous batching, request scheduling, and throughput optimization
+By completing this project, you will:
 
-### Module 5: Production Readiness
-12. **Model Serving** - Building an inference API server
-13. **Monitoring and Profiling** - Performance metrics, latency tracking, and bottleneck analysis
-14. **Deployment Strategies** - Containerization, scaling, and production best practices
+- Implement a working LLM inference engine using PyTorch
+- Load and run modern LLMs (e.g., Llama/Qwen-class models) end-to-end
+- Understand every major Transformer component (attention, FFN, layer norms, embeddings)
+- Apply real-world inference optimizations (KV-cache, batching, TP/PP, quantization, etc.)
 
-## Learning Approach
+## The Key Mental Model: LLM Inference Engine as an “Operating System”
 
-Each module builds upon the previous one, allowing you to:
-- Implement core functionality yourself to deeply understand how LLM inference works
-- Experiment with different techniques and observe their impact
-- Progress at your own pace from basic concepts to production-grade implementations
+Traditional computing has an OS that bridges applications and hardware. AI computing has an inference engine that bridges LLMs and GPUs/NPUs:
+
+- **Operating system**: process scheduling, memory management, I/O scheduling, device drivers
+- **Inference engine**: request batching & scheduling, GPU memory management, KV-cache management, kernel/operator optimization, multi-device parallelism
+
+This project’s goal is to help you build that “bridge” layer, step by step.
+
+## Why Inference Matters
+
+Training happens rarely; inference happens constantly. Every chatbot response, code completion, and AI feature runs inference—so small efficiency gains translate directly into large cost and latency improvements.
+
+Inference is challenging because it’s:
+
+- **Memory heavy** (weights + activations + KV-cache)
+- **Compute heavy** (large GEMMs + attention)
+- **Latency sensitive** (time-to-first-token and tokens/sec matter for UX)
+
+## Course Roadmap (High Level)
+
+- **Lesson 0**: Introduction (traditional software vs LLMs, why inference matters, course objective)
+- **Lesson 1**: LLM basics (Tokenizer, Transformer architecture, attention, positional encoding, parameters)
+- **Lesson 2**: Running an LLM with PyTorch (loading weights, tokenization, forward pass, generation)
+- **Next**: KV-cache, batching/scheduling, quantization, multi-GPU parallelism, serving, profiling
+
+For the detailed Lesson 0 content, see `resources/lesson-0-introduction/README.md`.
 
 ## Prerequisites
 
-- Basic Python programming knowledge
-- Familiarity with deep learning concepts (recommended but not required)
-- Interest in understanding how LLMs work under the hood
+- **Python**: comfortable with functions, classes, and basic data structures
+- **Linear algebra**: basic matrix/vector operations
+
+Helpful (not required):
+
+- PyTorch basics
+- Neural network fundamentals
+- GPU/CUDA concepts
+
+## Getting Started
+
+Start here:
+
+- **Lesson 0 (Introduction)**: `resources/lesson-0-introduction/README.md`
+
+Then continue to:
+
+- **Lesson 1 (LLM Basics)**: `resources/lesson-1-llm-basics/README.md`
+

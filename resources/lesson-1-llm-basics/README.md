@@ -1,405 +1,198 @@
-# Lesson 1: LLM Basics
+# Lesson 1: LLM Basics (Tokenizer, Decoder-only Transformer, Attention, Parameters)
 
-## Overview
+This lesson builds the core mental model you’ll use throughout the course:
 
-This lesson introduces the fundamental concepts behind Large Language Models (LLMs). You will learn about the Transformer architecture, understand how attention mechanisms work, and explore what model parameters mean in the context of LLMs.
+- **Tokenizer**: text → token IDs (numbers)
+- **Decoder-only Transformer**: token IDs → logits over vocabulary
+- **Generation**: repeatedly choose the next token ID and decode back to text
 
-### Learning Objectives
+Flow (encode → model → decode → autoregressive loop):
 
-By the end of this lesson, you will be able to:
-- Explain the core components of the Transformer architecture
-- Understand how self-attention and multi-head attention work
-- Describe what model parameters (weights and biases) represent
-- Calculate the approximate number of parameters in a Transformer model
-- Implement a basic attention mechanism from scratch
+```
+          ┌───────────────────────┐
+Prompt ──►│ Tokenizer (ENCODE)    │──► token_ids[0:T]
+  text    └───────────────────────┘
+                    │
+                    ▼
+          ┌───────────────────────┐
+          │ Decoder-only          │──► logits[T, vocab]
+          │ Transformer           │
+          └───────────────────────┘
+                    │
+                    ▼
+          ┌───────────────────────┐
+          │ Sampling / Greedy     │──► next_token_id
+          └───────────────────────┘
+                    │
+                    ├────────────── append to input ──────────────┐
+                    ▼                                              │
+          ┌───────────────────────┐                                │
+          │ Tokenizer (DECODE)    │──► text delta (new tokens)      │
+          └───────────────────────┘                                │
+                    │                                              │
+                    └──────────── repeat until <eos>/max_len ◄─────┘
+```
 
-## Prerequisites
+You’ll also run small, readable scripts that implement:
 
-- Basic Python programming knowledge
-- Basic linear algebra (matrix multiplication, vectors)
-- Familiarity with neural network concepts (optional but helpful)
+- a **toy tokenizer** (subword pieces; from scratch, no external tokenizer library)
+- **scaled dot-product attention** and a **minimal Transformer block** in PyTorch
+
+---
 
 ## Concepts
 
-### 1. The Transformer Architecture
+### 1) Tokenization: text → tokens → IDs
 
-The Transformer is a neural network architecture introduced in the landmark paper "Attention Is All You Need" (Vaswani et al., 2017). Unlike previous architectures like RNNs and LSTMs that process sequences sequentially, Transformers process all positions in parallel using attention mechanisms.
+LLMs do not read characters directly. They read **token IDs**.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    TRANSFORMER ARCHITECTURE                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐           ┌─────────────────┐         │
-│  │     ENCODER     │           │     DECODER     │         │
-│  │                 │           │                 │         │
-│  │  ┌───────────┐  │           │  ┌───────────┐  │         │
-│  │  │Multi-Head │  │           │  │  Masked   │  │         │
-│  │  │ Attention │  │           │  │ Multi-Head│  │         │
-│  │  └─────┬─────┘  │           │  │ Attention │  │         │
-│  │        │        │           │  └─────┬─────┘  │         │
-│  │  ┌─────▼─────┐  │           │        │        │         │
-│  │  │ Add & Norm│  │           │  ┌─────▼─────┐  │         │
-│  │  └─────┬─────┘  │           │  │ Add & Norm│  │         │
-│  │        │        │           │  └─────┬─────┘  │         │
-│  │  ┌─────▼─────┐  │           │        │        │         │
-│  │  │Feed Forward│ │  ──────►  │  ┌─────▼─────┐  │         │
-│  │  │  Network  │  │           │  │Cross-Attn │  │         │
-│  │  └─────┬─────┘  │           │  └─────┬─────┘  │         │
-│  │        │        │           │        │        │         │
-│  │  ┌─────▼─────┐  │           │  ┌─────▼─────┐  │         │
-│  │  │ Add & Norm│  │           │  │Feed Forward│ │         │
-│  │  └───────────┘  │           │  └───────────┘  │         │
-│  │                 │           │                 │         │
-│  │     × N layers  │           │     × N layers  │         │
-│  └─────────────────┘           └─────────────────┘         │
-│                                                             │
-│  ┌─────────────────┐           ┌─────────────────┐         │
-│  │   Input         │           │   Output        │         │
-│  │   Embedding     │           │   Embedding     │         │
-│  │       +         │           │       +         │         │
-│  │   Positional    │           │   Positional    │         │
-│  │   Encoding      │           │   Encoding      │         │
-│  └─────────────────┘           └─────────────────┘         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-#### Key Components:
-
-1. **Encoder**: Processes the input sequence and creates representations
-2. **Decoder**: Generates output tokens using encoder representations
-3. **Multi-Head Attention**: Allows the model to focus on different parts of the input
-4. **Feed-Forward Network**: Applies non-linear transformations
-5. **Add & Norm**: Residual connections with layer normalization
-
-> **Note**: Modern LLMs like GPT and Llama use a **decoder-only** architecture, which simplifies the original encoder-decoder design for text generation tasks.
-
-### 2. Attention Mechanism
-
-Attention is the core innovation of Transformers. It allows the model to weigh the importance of different parts of the input when processing each position.
-
-#### Self-Attention
-
-Self-attention computes relationships between all positions in a sequence. For each position, it asks: "How relevant is every other position to me?"
+Typical tokenization flow:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    SELF-ATTENTION MECHANISM                  │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Input: "The cat sat on the mat"                           │
-│                                                             │
-│  When processing "sat":                                     │
-│                                                             │
-│  The   cat   sat   on    the   mat                         │
-│   │     │     │     │     │     │                          │
-│   ▼     ▼     ▼     ▼     ▼     ▼                          │
-│  0.1   0.4   1.0   0.1   0.1   0.3   ◄── Attention weights │
-│                                                             │
-│  "sat" attends most to itself and "cat" (the subject)      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+Text ──► (Tokenizer) ──► Tokens (strings) ──► Token IDs (ints)
 ```
 
-#### Query, Key, Value (QKV)
+Why tokenization matters:
 
-The attention mechanism uses three learned projections:
+- **Context window** is measured in **tokens**, not characters.
+- **Latency / throughput** is roughly “work per generated token”.
+- Token boundaries affect what the model can represent easily (names, code, languages).
 
-- **Query (Q)**: "What am I looking for?"
-- **Key (K)**: "What do I contain?"
-- **Value (V)**: "What information do I provide?"
+#### An intuitive tokenizer explanation (no jargon)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     QKV COMPUTATION                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Input Embedding (X)                                        │
-│         │                                                   │
-│         ├──────► × W_Q ──────► Q (Query)                   │
-│         │                                                   │
-│         ├──────► × W_K ──────► K (Key)                     │
-│         │                                                   │
-│         └──────► × W_V ──────► V (Value)                   │
-│                                                             │
-│  W_Q, W_K, W_V are learned weight matrices                 │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+Think of a tokenizer as a **reversible dictionary-based compressor**:
 
-#### Scaled Dot-Product Attention
+- **Vocabulary**: a fixed list of allowed “pieces” (tokens).
+- **Encode**: split text into pieces and map each piece to an integer (**token ID**).
+- **Decode**: map token IDs back to pieces and join them back into text.
 
-The attention formula:
+Why not character-level or word-level?
 
-```
-Attention(Q, K, V) = softmax(Q × K^T / √d_k) × V
-```
+- **Character-level**: sequences become very long (more tokens), attention gets much more expensive.
+- **Word-level**: vocabulary explodes (names, typos, new words, code identifiers), causing OOV problems.
 
-Where:
-- `Q × K^T`: Dot product measures similarity between queries and keys
-- `√d_k`: Scaling factor (d_k = dimension of keys) prevents large values
-- `softmax`: Converts scores to probabilities (weights sum to 1)
-- `× V`: Weighted sum of values based on attention weights
+The practical compromise is **subword pieces**: common fragments become single pieces, and rare words are
+composed from multiple pieces. This keeps both vocab size and sequence length manageable.
+
+Also, real tokenizers define **special tokens** (e.g. `<bos>`, `<eos>`, `<pad>`, chat templates).
+
+Key takeaway you’ll reuse later: **context length, KV cache size, and throughput are measured in tokens**.
+
+---
+
+### 2) Transformer anatomy (high level)
+
+One Transformer layer typically looks like:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│              SCALED DOT-PRODUCT ATTENTION                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│      Q          K^T                                         │
-│   ┌─────┐    ┌─────┐                                       │
-│   │     │    │     │      MatMul                           │
-│   │     │ ×  │     │  ──────────►  Attention Scores        │
-│   │     │    │     │                    │                  │
-│   └─────┘    └─────┘                    │                  │
-│                                         ▼                  │
-│                                  Scale (÷ √d_k)            │
-│                                         │                  │
-│                                         ▼                  │
-│                                   Softmax                  │
-│                                         │                  │
-│                                         ▼                  │
-│                           Attention Weights × V            │
-│                                         │                  │
-│                                         ▼                  │
-│                                     Output                 │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+x ──► Norm ──► Self-Attention ──► +Residual ──► Norm ──► FFN ──► +Residual
 ```
 
-#### Multi-Head Attention
+Key components:
 
-Instead of performing a single attention computation, multi-head attention runs multiple attention operations in parallel ("heads"), each learning different relationships.
+- **Embedding**: maps token IDs → vectors (shape: `[seq_len, d_model]`)
+- **Self-attention**: mixes information across positions using Q/K/V
+- **FFN / MLP**: per-token non-linear transform (two linear layers with activation)
+- **Residual connections**: stabilize optimization and preserve information
+- **Normalization**: LayerNorm or RMSNorm (LLMs often use RMSNorm)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   MULTI-HEAD ATTENTION                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Input                                                      │
-│    │                                                        │
-│    ├────► Head 1: Attention(Q₁, K₁, V₁) ──┐                │
-│    │                                       │                │
-│    ├────► Head 2: Attention(Q₂, K₂, V₂) ──┼──► Concat ──► Linear │
-│    │                                       │                │
-│    ├────► Head 3: Attention(Q₃, K₃, V₃) ──┤                │
-│    │              ...                      │                │
-│    └────► Head h: Attention(Qₕ, Kₕ, Vₕ) ──┘                │
-│                                                             │
-│  Each head can focus on different aspects:                  │
-│  - Head 1: Subject-verb relationships                       │
-│  - Head 2: Adjective-noun relationships                     │
-│  - Head 3: Long-range dependencies                          │
-│  - etc.                                                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+---
 
-### 3. Positional Encoding
+### 3) Attention: Q, K, V and causal masking
 
-Since attention processes all positions in parallel, the model has no inherent sense of order. Positional encodings add position information to the input embeddings.
+Given hidden states \(X\) (one vector per token position), the layer produces:
 
-#### Sinusoidal Positional Encoding (Original Transformer)
+- \(Q = XW_Q\)
+- \(K = XW_K\)
+- \(V = XW_V\)
 
-```python
-PE(pos, 2i)   = sin(pos / 10000^(2i/d_model))
-PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
-```
+Then attention weights (per token) are:
 
-Where:
-- `pos`: Position in the sequence
-- `i`: Dimension index
-- `d_model`: Embedding dimension
+\[
+\text{Attn}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d}}\right)V
+\]
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  POSITIONAL ENCODING                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Position 0:  [sin(0), cos(0), sin(0), cos(0), ...]        │
-│  Position 1:  [sin(1/f), cos(1/f), sin(1/f²), cos(1/f²),.] │
-│  Position 2:  [sin(2/f), cos(2/f), sin(2/f²), cos(2/f²),.] │
-│     ...                                                     │
-│                                                             │
-│  Token Embedding + Positional Encoding = Final Embedding   │
-│                                                             │
-│  Modern approaches: RoPE (Rotary Position Embedding)       │
-│                     ALiBi (Attention with Linear Biases)   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+For autoregressive generation, we apply a **causal mask** so position *t* cannot
+attend to future positions \((t+1, t+2, ...)\).
+
+Compute cost:
+
+- \(QK^T\) is \(O(n^2)\) in sequence length \(n\) (this becomes a major bottleneck).
+
+---
+
+### 4) Where do parameters come from?
+
+If your model width is \(d\):
+
+- Attention projections are roughly \(3d^2\) (Q,K,V) + \(d^2\) (output) = \(4d^2\)
+- FFN is roughly \(d \cdot d_{\text{ff}} + d_{\text{ff}} \cdot d\) = \(2dd_{\text{ff}}\)
+
+Rule of thumb: for typical LLMs \(d_{\text{ff}} \approx 4d\), so FFN dominates.
+
+---
+
+## Implementation (Hands-on)
+
+Install dependencies (recommended to use a venv):
+
+```bash
+pip install -r resources/lesson-1-llm-basics/requirements.txt
 ```
 
-### 4. Model Parameters
+### Step 1: Toy tokenizer (subword pieces) from scratch
 
-Parameters are the learned values in a neural network. In LLMs, parameters consist of **weights** and **biases**.
+Run:
 
-#### Weights
-
-Weights determine the strength of connections between neurons. They are matrices that transform inputs:
-
-```python
-output = input @ weight + bias
+```bash
+python resources/lesson-1-llm-basics/step1_tokenizer_basics.py
 ```
 
-#### Biases
+What to look for:
 
-Biases are offset values that shift the activation, allowing the model to fit data better:
+- How a tokenizer maps text ↔ token pieces ↔ token IDs
+- How frequent patterns become single “pieces”
+- How encode/decode works
+- How changing vocab size affects tokenization granularity
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    WEIGHTS AND BIASES                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Linear Layer: y = Wx + b                                   │
-│                                                             │
-│  ┌─────────┐      ┌─────────┐      ┌─────────┐             │
-│  │  Input  │  ×   │ Weight  │  +   │  Bias   │  =  Output  │
-│  │   (x)   │      │   (W)   │      │   (b)   │             │
-│  │ [1024]  │      │[1024×   │      │ [4096]  │    [4096]   │
-│  │         │      │  4096]  │      │         │             │
-│  └─────────┘      └─────────┘      └─────────┘             │
-│                                                             │
-│  Parameters in this layer: 1024 × 4096 + 4096 = 4,198,400  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+---
+
+### Step 2: Attention + minimal Transformer block (PyTorch)
+
+Run:
+
+```bash
+python resources/lesson-1-llm-basics/step2_attention_and_transformer.py
 ```
 
-#### Parameter Count in Transformers
+What to look for:
 
-For a Transformer with:
-- `d_model`: Hidden dimension (e.g., 4096)
-- `n_layers`: Number of layers (e.g., 32)
-- `n_heads`: Number of attention heads (e.g., 32)
-- `vocab_size`: Vocabulary size (e.g., 32000)
-- `d_ff`: Feed-forward dimension (typically 4 × d_model)
+- Shapes for \(Q, K, V\), attention logits, attention weights
+- The causal mask behavior
+- Parameter count estimates vs actual PyTorch parameter counts
 
-Main parameter sources:
-1. **Embedding layer**: `vocab_size × d_model`
-2. **Per layer**:
-   - QKV projections: `3 × d_model × d_model`
-   - Output projection: `d_model × d_model`
-   - Feed-forward: `2 × d_model × d_ff`
-3. **Output layer**: `d_model × vocab_size`
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│           LLAMA 2 7B PARAMETER BREAKDOWN                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Configuration:                                             │
-│  - d_model = 4096                                           │
-│  - n_layers = 32                                            │
-│  - n_heads = 32                                             │
-│  - vocab_size = 32000                                       │
-│  - d_ff = 11008                                             │
-│                                                             │
-│  Embeddings:      32000 × 4096        =    131,072,000     │
-│  Per Layer:                                                 │
-│    - Attention:   4 × 4096 × 4096     =     67,108,864     │
-│    - FFN:         2 × 4096 × 11008    =     90,177,536     │
-│    - LayerNorms:  2 × 4096            =          8,192     │
-│                                                             │
-│  Total per layer:                     =    157,294,592     │
-│  All 32 layers:   32 × 157,294,592    =  5,033,426,944     │
-│                                                             │
-│  Final LayerNorm: 4096                =          4,096     │
-│  Output Layer:    4096 × 32000        =    131,072,000     │
-│                                                             │
-│  ─────────────────────────────────────────────────────     │
-│  TOTAL (approx):                      ≈   6.7 Billion      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 5. Decoder-Only Architecture (Modern LLMs)
-
-Most modern LLMs (GPT, Llama, Claude) use a decoder-only architecture:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 DECODER-ONLY ARCHITECTURE                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                   DECODER BLOCK                      │   │
-│  │                                                      │   │
-│  │  Input ──► RMSNorm ──► Masked Multi-Head Attention  │   │
-│  │              │                    │                  │   │
-│  │              └────── Add ◄────────┘                  │   │
-│  │                       │                              │   │
-│  │                       ▼                              │   │
-│  │              RMSNorm ──► Feed-Forward Network       │   │
-│  │                │                    │                │   │
-│  │                └────── Add ◄────────┘                │   │
-│  │                         │                            │   │
-│  │                      Output                          │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                          × N layers                         │
-│                                                             │
-│  Key difference: Uses CAUSAL (masked) attention            │
-│  - Each token can only attend to previous tokens           │
-│  - Enables autoregressive text generation                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Implementation
-
-See the `code/` directory for implementation examples:
-
-- `attention.py`: Basic attention mechanism implementation
-- `transformer_block.py`: Complete Transformer block
-- `positional_encoding.py`: Sinusoidal positional encoding
-
-### Quick Start
-
-```python
-import torch
-from code.attention import scaled_dot_product_attention, MultiHeadAttention
-
-# Example: Scaled dot-product attention
-batch_size, seq_len, d_model = 2, 10, 512
-Q = torch.randn(batch_size, seq_len, d_model)
-K = torch.randn(batch_size, seq_len, d_model)
-V = torch.randn(batch_size, seq_len, d_model)
-
-output, attention_weights = scaled_dot_product_attention(Q, K, V)
-print(f"Output shape: {output.shape}")  # [2, 10, 512]
-print(f"Attention weights shape: {attention_weights.shape}")  # [2, 10, 10]
-```
+---
 
 ## Exercises
 
-1. **Implement scaled dot-product attention from scratch**
-   - Compute Q×K^T, apply scaling, softmax, and multiply by V
-   - Verify your implementation matches PyTorch's built-in functions
+- **Exercise 1 (Tokenizer)**: Extend the toy tokenizer to support a small set of **special tokens**
+  like `<bos>`, `<eos>`, `<pad>`. Verify decode is stable.
 
-2. **Visualize attention patterns**
-   - Create a simple sentence and compute attention weights
-   - Plot the attention matrix as a heatmap
-   - Analyze which words attend to which
+- **Exercise 2 (Attention)**: Add **top-k attention** as a debugging tool:
+  keep only the largest-k attention scores per query position before softmax (for interpretability).
 
-3. **Calculate parameter counts**
-   - Given a model configuration, calculate the total parameters
-   - Compare your calculation with Llama 2 7B specifications
+- **Exercise 3 (Parameters)**: For the Transformer block in Step 2, compute:
+  - total parameters from formulas
+  - total parameters from `sum(p.numel() for p in model.parameters())`
+  Compare and explain any mismatch (bias terms, LayerNorm weights, etc.).
 
-4. **Implement causal masking**
-   - Modify attention to prevent tokens from attending to future positions
-   - This is essential for autoregressive generation
+- **Exercise 4 (Complexity)**: Increase sequence length in Step 2 and time the forward pass.
+  Observe the \(O(n^2)\) scaling from attention.
+
+---
 
 ## Additional Resources
 
-### Papers
-- [Attention Is All You Need](https://arxiv.org/abs/1706.03762) - Original Transformer paper (Vaswani et al., 2017)
-- [Language Models are Unsupervised Multitask Learners](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) - GPT-2 paper
-- [LLaMA: Open and Efficient Foundation Language Models](https://arxiv.org/abs/2302.13971) - LLaMA paper (Touvron et al., 2023)
-
-### Tutorials and Articles
-- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/) - Visual explanation by Jay Alammar
-- [The Annotated Transformer](https://nlp.seas.harvard.edu/2018/04/03/attention.html) - Line-by-line implementation
-- [Andrej Karpathy's Neural Networks: Zero to Hero](https://karpathy.ai/zero-to-hero.html) - Video series
-
-### Documentation
-- [PyTorch nn.Transformer](https://pytorch.org/docs/stable/generated/torch.nn.Transformer.html)
-- [Hugging Face Transformers](https://huggingface.co/docs/transformers/)
+- [The Illustrated Transformer](https://jalammar.github.io/illustrated-transformer/)
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762)
+- [The Illustrated GPT-2](https://jalammar.github.io/illustrated-gpt2/)
