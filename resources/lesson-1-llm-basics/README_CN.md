@@ -244,6 +244,76 @@ Hidden States (batch, seq_len, hidden_size)
         └──► Wv ──► V (Value)   : "我的内容是什么"
 ```
 
+#### Linear 层基础：矩阵乘法
+
+在深入 Q/K/V 之前，先理解 **Linear 层**（也叫全连接层、Dense 层）的本质。
+
+**数学定义**：
+
+$$
+y = xW^T + b
+$$
+
+其中：
+- $x$：输入向量，形状 `(*, in_features)`
+- $W$：权重矩阵，形状 `(out_features, in_features)`
+- $b$：偏置向量，形状 `(out_features)`（可选）
+- $y$：输出向量，形状 `(*, out_features)`
+
+**矩阵乘法图解**：
+
+```
+输入 x              权重 W^T              输出 y
+(1, in_features)   (in_features, out)   (1, out_features)
+
+[x₀ x₁ x₂ x₃]  ×  [w₀₀ w₀₁ w₀₂]   =   [y₀ y₁ y₂]
+                   [w₁₀ w₁₁ w₁₂]
+                   [w₂₀ w₂₁ w₂₂]
+                   [w₃₀ w₃₁ w₃₂]
+
+每个输出元素:
+y₀ = x₀·w₀₀ + x₁·w₁₀ + x₂·w₂₀ + x₃·w₃₀  (输入与第 0 列点积)
+y₁ = x₀·w₀₁ + x₁·w₁₁ + x₂·w₂₁ + x₃·w₃₁  (输入与第 1 列点积)
+y₂ = x₀·w₀₂ + x₁·w₁₂ + x₂·w₂₂ + x₃·w₃₂  (输入与第 2 列点积)
+```
+
+**PyTorch 实现**：
+
+```python
+import torch.nn as nn
+
+# 创建一个 Linear 层：4 维输入 → 3 维输出
+linear = nn.Linear(in_features=4, out_features=3, bias=False)
+
+# 查看权重形状
+print(linear.weight.shape)  # torch.Size([3, 4])  即 (out_features, in_features)
+
+# 前向传播
+x = torch.randn(2, 5, 4)    # (batch=2, seq_len=5, in_features=4)
+y = linear(x)               # (batch=2, seq_len=5, out_features=3)
+```
+
+**关键理解**：
+
+| 概念 | 说明 |
+|------|------|
+| **线性变换** | Linear 层本质是对输入做线性变换（旋转、缩放、投影） |
+| **参数量** | `in_features × out_features`（+ out_features 如果有 bias） |
+| **无激活函数** | Linear 本身不含非线性，需配合 ReLU/SiLU 等使用 |
+| **批量处理** | 对 batch 和 seq_len 维度独立作用，只变换最后一维 |
+
+**在 LLM 中的应用**：
+
+```python
+# Q/K/V 投影就是 3 个 Linear 层
+self.q_proj = nn.Linear(4096, 4096, bias=False)  # hidden → Q
+self.k_proj = nn.Linear(4096, 1024, bias=False)  # hidden → K (GQA: 更小)
+self.v_proj = nn.Linear(4096, 1024, bias=False)  # hidden → V (GQA: 更小)
+
+# 计算量：每个 token 需要 in × out 次乘加操作
+# Q: 4096 × 4096 = 16.7M FLOPs/token
+```
+
 **核心实现**：
 
 ```python
