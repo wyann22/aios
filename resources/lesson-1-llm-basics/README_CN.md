@@ -519,9 +519,170 @@ Qwen3 使用 `base=1000000`（而非原始的 10000），使低频成分变化�
 
 ---
 
-### 6) Attention：注意力计算
+### 6) Softmax 函数：概率归一化
 
-有了 Q、K、V 之后，就可以计算注意力了：
+在进入 Attention 之前，我们需要理解 **Softmax** 函数——它是 Attention 机制的核心组件。
+
+#### Softmax 是什么？
+
+Softmax 函数将任意实数向量转换为**概率分布**（所有元素非负且和为 1）。
+
+**数学定义**：
+
+对于输入向量 $z = [z_1, z_2, ..., z_n]$：
+
+$$
+\text{softmax}(z_i) = \frac{e^{z_i}}{\sum_{j=1}^{n} e^{z_j}}
+$$
+
+**直观理解**：
+
+```
+输入 scores:  [2.0,  1.0,  0.1]
+              ↓ 取指数 e^x
+指数化:       [7.39, 2.72, 1.11]
+              ↓ 除以总和 (7.39+2.72+1.11=11.22)
+概率分布:     [0.66, 0.24, 0.10]  ← 和为 1.0
+```
+
+**核心性质**：
+
+| 性质 | 说明 |
+|------|------|
+| **归一化** | 输出和为 1，可解释为概率 |
+| **保序** | 输入越大，输出概率越高 |
+| **可微分** | 梯度友好，适合反向传播 |
+| **放大差异** | 指数函数放大大值、抑制小值 |
+
+**Softmax 的"温度"效应**：
+
+```python
+# 温度参数控制分布的"尖锐程度"
+def softmax_with_temperature(x, temperature=1.0):
+    return F.softmax(x / temperature, dim=-1)
+
+# 示例：x = [2.0, 1.0, 0.0]
+# T=1.0 (默认):  [0.67, 0.24, 0.09]  ← 正常分布
+# T=0.5 (低温):  [0.84, 0.11, 0.04]  ← 更尖锐，接近 argmax
+# T=2.0 (高温):  [0.51, 0.31, 0.19]  ← 更平滑，接近均匀分布
+```
+
+**数值稳定性问题**：
+
+直接计算 $e^{z_i}$ 可能导致数值溢出（当 $z_i$ 很大时）。实际实现会减去最大值：
+
+```python
+def stable_softmax(x, dim=-1):
+    # 减去最大值，防止 exp 溢出
+    x_max = x.max(dim=dim, keepdim=True).values
+    exp_x = torch.exp(x - x_max)
+    return exp_x / exp_x.sum(dim=dim, keepdim=True)
+```
+
+**为什么这样做是安全的**：
+
+$$
+\frac{e^{z_i}}{\sum_j e^{z_j}} = \frac{e^{z_i - c}}{\sum_j e^{z_j - c}}
+$$
+
+减去常数 $c = \max(z)$ 后，最大的指数变成 $e^0 = 1$，其他都是小于 1 的正数，避免了溢出。
+
+**PyTorch 实现深入**：
+
+```python
+# PyTorch 的 F.softmax 已经处理了数值稳定性
+import torch.nn.functional as F
+
+x = torch.tensor([1000.0, 1000.1, 1000.2])  # 很大的数
+probs = F.softmax(x, dim=0)
+print(probs)  # tensor([0.0900, 0.2447, 0.6652]) ← 正常工作
+
+# 手动实现（不安全）会溢出
+# exp(1000) = inf!
+```
+
+#### Softmax 在 Attention 中的作用
+
+在 Attention 中，Softmax 将**注意力分数（scores）**转换为**注意力权重（weights）**：
+
+```
+Q·K^T 分数:     [2.1,  -0.5,  1.3,  0.8]
+              ↓ softmax
+注意力权重:     [0.42,  0.03,  0.29,  0.26]  ← 概率分布
+              │
+              ▼ 加权求和 V
+输出:          weighted sum of V vectors
+```
+
+这意味着：
+- **高分位置**：模型"注意"这些位置，给予更高权重
+- **低分位置**：被"忽略"，权重接近 0
+- **权重和为 1**：输出是 V 的凸组合
+
+---
+
+### 7) Attention：注意力机制的算法原理
+
+#### 为什么需要 Attention？
+
+传统的序列模型（如 RNN）有一个根本问题：**信息瓶颈**。
+
+```
+RNN: 所有历史信息必须压缩到固定大小的隐藏状态
+      序列很长时，早期信息会被"遗忘"
+
+Attention: 每个位置可以直接访问任意其他位置
+           没有信息压缩损失
+```
+
+**Attention 的核心思想**：对于每个查询（Query），在所有键值对（Key-Value）中找到相关的内容，然后加权汇总。
+
+#### Q、K、V 的直观理解
+
+把 Attention 想象成一个**信息检索系统**：
+
+```
+   你在图书馆找书
+        │
+        ▼
+   Query (Q): 你的问题/需求
+        "我想找关于 Python 的入门书"
+        │
+        ▼
+   Key (K): 每本书的索引/标签
+        ["Python入门", "Java高级", "数据结构", ...]
+        │
+        ▼
+   匹配程度 = Q · K^T
+        [0.95, 0.1, 0.3, ...]  ← 相关性分数
+        │
+        ▼
+   Softmax → 注意力权重
+        [0.7, 0.01, 0.15, ...]  ← 归一化后
+        │
+        ▼
+   Value (V): 每本书的实际内容
+        取出相关书籍，根据相关性加权组合
+```
+
+**Self-Attention（自注意力）**：
+
+在 Transformer 中，Q、K、V 都来自**同一个输入序列**（经过不同的线性投影）。
+
+```python
+# 输入: "The cat sat on the mat"
+# 每个词都生成自己的 Q, K, V
+
+# 当处理 "sat" 这个词时:
+Q_sat = "sat 想要查找什么信息？"
+K_*   = "所有词在'被查找'时的表示"
+V_*   = "所有词的实际语义内容"
+
+# sat 的输出 = 加权组合所有词的 V
+#   如果 sat 与 cat 相关，cat 的 V 权重会较高
+```
+
+#### Attention 完整计算流程
 
 ```
          Q        K^T           Softmax          V
@@ -538,13 +699,112 @@ Qwen3 使用 `base=1000000`（而非原始的 10000），使低频成分变化�
                            (seq, d)
 ```
 
-**核心公式**：
+**分步详解**：
+
+**Step 1: 计算注意力分数（Scores）**
+
+$$
+\text{scores} = QK^T
+$$
+
+```python
+# Q: (batch, heads, seq_len, head_dim) = (1, 1, 4, 3)
+# K: (batch, heads, seq_len, head_dim) = (1, 1, 4, 3)
+
+# 矩阵乘法: Q @ K.T
+# 形状变化: (4, 3) @ (3, 4) = (4, 4)
+
+# 结果 scores[i][j] = Q[i] 与 K[j] 的点积
+#                   = 位置 i 对位置 j 的"原始注意力"
+```
+
+**点积如何衡量相似度**：
+
+```
+向量 A = [1, 0]
+向量 B = [1, 0]  → A·B = 1  (相同方向，高相似)
+向量 C = [0, 1]  → A·C = 0  (正交，不相关)
+向量 D = [-1, 0] → A·D = -1 (相反方向，负相关)
+```
+
+**Step 2: 缩放（Scaling）**
+
+$$
+\text{scaled\_scores} = \frac{QK^T}{\sqrt{d_k}}
+$$
+
+```python
+d_k = head_dim  # 128 for Qwen3
+scores = scores / math.sqrt(d_k)
+```
+
+**为什么要除以 √d_k**：
+
+当 $d_k$ 很大时，点积的**方差**会变大：
+
+```
+假设 Q 和 K 的每个元素都是 ~N(0,1)
+
+点积 = sum(Q[i] * K[i] for i in range(d_k))
+     = d_k 个独立随机变量的和
+
+方差 = d_k  (每项方差=1)
+标准差 = √d_k
+
+当 d_k=128 时，点积值可能在 [-20, 20] 范围
+Softmax 会变得非常"尖锐" → 梯度消失
+```
+
+除以 √d_k 后，方差回到 ~1，softmax 输出更平滑。
+
+**Step 3: 应用掩码（Masking）**
+
+对于因果语言模型（如 GPT），位置 t 不能看到 t+1, t+2, ... 的信息：
+
+```python
+# 掩码矩阵（4x4 的例子）
+mask = [
+    [  0, -∞, -∞, -∞],   # 位置0 只能看位置0
+    [  0,  0, -∞, -∞],   # 位置1 能看 0,1
+    [  0,  0,  0, -∞],   # 位置2 能看 0,1,2
+    [  0,  0,  0,  0],   # 位置3 能看 0,1,2,3
+]
+
+scores = scores + mask
+# -∞ 的位置在 softmax 后会变成 0
+```
+
+**Step 4: Softmax 归一化**
+
+$$
+\text{weights} = \text{softmax}(\text{scaled\_scores})
+$$
+
+```python
+attn_weights = F.softmax(scores, dim=-1)
+# 每一行和为 1
+# attn_weights[i] 表示位置 i 对所有位置的注意力分布
+```
+
+**Step 5: 加权求和 Value**
+
+$$
+\text{output} = \text{weights} \cdot V
+$$
+
+```python
+output = torch.matmul(attn_weights, V)
+# output[i] = sum(weights[i][j] * V[j] for all j)
+#           = 所有位置 V 的加权组合
+```
+
+#### 核心公式
 
 $$
 \text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V
 $$
 
-**核心实现**：
+#### 核心实现
 
 ```python
 def scaled_dot_product_attention(Q, K, V, mask=None):
@@ -572,7 +832,7 @@ def scaled_dot_product_attention(Q, K, V, mask=None):
     return output, attn_weights
 ```
 
-**因果掩码（Causal Mask）**：
+#### 因果掩码（Causal Mask）
 
 对于自回归生成，位置 t 只能看到位置 0~t，不能看到未来：
 
@@ -590,15 +850,52 @@ def causal_mask(seq_len):
     return mask
 ```
 
-**为什么要除以 √d_k**：
+#### Attention 的可视化理解
 
-如果不缩放，当 d_k 很大时，点积值会很大，softmax 会变得非常"尖锐"（接近 one-hot），梯度接近 0。除以 √d_k 可以稳定训练。
+```
+输入句子: "The cat sat on the mat"
 
-**复杂度**：O(n²) 其中 n 是序列长度——这是长上下文的主要瓶颈。
+Attention 权重矩阵（某一层某一头）:
+
+          The   cat   sat   on   the   mat
+    The  [0.9   0.05  0.02  0.01  0.01  0.01]
+    cat  [0.3   0.5   0.1   0.05  0.03  0.02]
+    sat  [0.1   0.4   0.3   0.1   0.05  0.05]  ← sat 主要关注 cat
+    on   [0.1   0.1   0.2   0.4   0.1   0.1 ]
+    the  [0.05  0.1   0.1   0.1   0.3   0.35]
+    mat  [0.05  0.2   0.1   0.1   0.15  0.4 ]  ← mat 关注自己和 cat
+```
+
+**不同层的 Attention 模式**：
+
+- **浅层**：通常关注局部上下文、语法结构
+- **深层**：捕捉语义关系、长距离依赖
+- **某些头**：专门关注"前一个词"或"标点"
+- **某些头**：专门关注"主谓关系"或"指代"
+
+#### 复杂度分析
+
+| 操作 | 复杂度 | 说明 |
+|------|--------|------|
+| Q·K^T | O(n² · d) | n=序列长度，d=head_dim |
+| Softmax | O(n²) | 每行 n 个元素 |
+| Weights·V | O(n² · d) | 矩阵乘法 |
+| **总计** | **O(n² · d)** | 这是长上下文的主要瓶颈 |
+
+**为什么 O(n²) 是问题**：
+
+```
+n = 1K   → n² = 1M 次操作    ← 可接受
+n = 4K   → n² = 16M 次操作   ← 开始变慢
+n = 32K  → n² = 1B 次操作    ← 很慢
+n = 128K → n² = 16B 次操作   ← 非常慢，显存爆炸
+```
+
+**Flash Attention 等优化**：通过巧妙的分块计算，在保持 O(n²) 计算量的同时，大幅减少**显存占用**（从 O(n²) 降到 O(n)）。
 
 ---
 
-### 7) MLP（前馈网络）
+### 8) MLP（前馈网络）
 
 每个 Transformer 层的另一半是 MLP（也叫 FFN）。它对每个 token 位置独立做非线性变换。
 
@@ -646,7 +943,7 @@ class MLP(nn.Module):
 
 ---
 
-### 8) 完整的 Transformer 层
+### 9) 完整的 Transformer 层
 
 把上面的组件组合起来，一个完整的 Transformer 层（Pre-Norm 架构）如下：
 
@@ -716,7 +1013,7 @@ class TransformerBlock(nn.Module):
 
 ---
 
-### 9) 参数量从哪里来？
+### 10) 参数量从哪里来？
 
 以 Qwen3-8B 为例，每层参数量分布：
 
