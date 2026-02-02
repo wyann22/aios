@@ -16,6 +16,8 @@
 
 ![LLM 推理/生成流程：encode → decoder-only transformer → decode → 自回归循环](images/llm_flow.png)
 
+![Qwen3 模型架构](images/qwen3.png)
+
 ---
 
 ## 核心概念
@@ -621,7 +623,22 @@ Q·K^T 分数:     [2.1,  -0.5,  1.3,  0.8]
 
 ---
 
-### 7) Attention：注意力机制的算法原理
+### 7) Attention：注意力机制
+**核心公式**：
+
+$$
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V
+$$
+
+其中：
+- $Q$（Query）：查询矩阵，表示"我在找什么"
+- $K$（Key）：键矩阵，表示"我有什么"
+- $V$（Value）：值矩阵，表示"我的内容是什么"
+- $d_k$：Key 向量的维度（用于缩放）
+
+![Attention 机制示意图](images/attn.png)
+
+---
 
 #### 为什么需要 Attention？
 
@@ -730,7 +747,7 @@ $$
 **Step 2: 缩放（Scaling）**
 
 $$
-\text{scaled\_scores} = \frac{QK^T}{\sqrt{d_k}}
+\text{ScaledScores} = \frac{QK^T}{\sqrt{d_k}}
 $$
 
 ```python
@@ -777,7 +794,7 @@ scores = scores + mask
 **Step 4: Softmax 归一化**
 
 $$
-\text{weights} = \text{softmax}(\text{scaled\_scores})
+\text{Weights} = \text{softmax}(\text{ScaledScores})
 $$
 
 ```python
@@ -789,7 +806,7 @@ attn_weights = F.softmax(scores, dim=-1)
 **Step 5: 加权求和 Value**
 
 $$
-\text{output} = \text{weights} \cdot V
+\text{Output} = \text{Weights} \cdot V
 $$
 
 ```python
@@ -797,12 +814,6 @@ output = torch.matmul(attn_weights, V)
 # output[i] = sum(weights[i][j] * V[j] for all j)
 #           = 所有位置 V 的加权组合
 ```
-
-#### 核心公式
-
-$$
-\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V
-$$
 
 #### 核心实现
 
