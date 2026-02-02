@@ -16,7 +16,7 @@
 
 ![LLM 推理/生成流程：encode → decoder-only transformer → decode → 自回归循环](images/llm_flow.png)
 
-![Qwen3 模型架构](images/qwen3.png)
+<img src="images/qwen3.png" alt="Qwen3 模型架构" width="60%">
 
 ---
 
@@ -636,7 +636,7 @@ $$
 - $V$（Value）：值矩阵，表示"我的内容是什么"
 - $d_k$：Key 向量的维度（用于缩放）
 
-![Attention 机制示意图](images/attn.png)
+<img src="images/attn.png" alt="Attention 机制示意图" width="60%">
 
 ---
 
