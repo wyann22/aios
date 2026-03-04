@@ -391,128 +391,199 @@ RoPE (Llama, Qwen, ...)    →  旋转 Q 和 K 向量 ← 现代主流
 
 把位置信息"旋转"进 Q 和 K 向量中，使得两个位置 m 和 n 的向量点积自然包含它们的**相对距离** (m-n)。
 
-```
-位置 0 的向量：不旋转
-位置 1 的向量：旋转 θ 度
-位置 2 的向量：旋转 2θ 度
-位置 m 的向量：旋转 m×θ 度
-```
-
 ![RoPE](images/rope.png)
 
-**数学原理**：
+下面我们按**计算流程**，一步一步推导 RoPE 是如何实现的。
 
-对于 2D 向量，旋转矩阵为：
+---
+
+#### Step 1：计算 head_dim 维度上的旋转频率 `inv_freq`
+
+RoPE 的第一步是为 Q/K 向量的每个维度对分配一个**旋转频率**。
+
+以 head_dim=128 为例，我们把 128 维向量分成 **64 对**，每对使用不同频率的 θ：
+
+```
+θ₀ = 1 / base^(0/128)    → 频率最高，旋转最快（捕捉近距离关系）
+θ₁ = 1 / base^(2/128)    →
+θ₂ = 1 / base^(4/128)    →
+  ...
+θ₆₃ = 1 / base^(126/128)  → 频率最低，旋转最慢（捕捉远距离关系）
+```
+
+**直觉**：类似钟表——秒针转得快（高频，感知短间隔），时针转得慢（低频，感知长间隔）。64 个频率组合在一起，可以精确编码任意位置。
+
+```python
+# inv_freq 形状: (head_dim / 2,) = (64,)
+inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+#                           [0, 2, 4, ..., 126] / 128
+# 结果: [1.0, 0.93, 0.87, ..., 0.00001]  ← 从高频到低频
+```
+
+其中 `base` 通常是 10000（原始 Transformer）或 1000000（Qwen3 长上下文）。base 越大，低频成分变化越慢，能编码的最大距离越远。
+
+---
+
+#### Step 2：乘以位置 ID，得到每个位置的旋转角度
+
+将步骤 1 的频率向量与位置索引 `[0, 1, 2, ..., seq_len-1]` 做**外积**，得到每个位置在每个维度对上的旋转角度：
+
+```
+                        inv_freq (64 个频率)
+                    θ₀      θ₁      θ₂     ...   θ₆₃
+位置 0:          0·θ₀    0·θ₁    0·θ₂    ...   0·θ₆₃     ← 不旋转
+位置 1:          1·θ₀    1·θ₁    1·θ₂    ...   1·θ₆₃     ← 旋转一点
+位置 2:          2·θ₀    2·θ₁    2·θ₂    ...   2·θ₆₃     ← 旋转更多
+  ...
+位置 m:          m·θ₀    m·θ₁    m·θ₂    ...   m·θ₆₃
+```
+
+```python
+# 位置索引
+t = torch.arange(seq_len, dtype=torch.float32)  # [0, 1, 2, ..., seq_len-1]
+
+# 外积: (seq_len,) × (head_dim/2,) → (seq_len, head_dim/2)
+freqs = torch.outer(t, inv_freq)
+# freqs[m, i] = m × θ_i  表示位置 m 在第 i 个维度对上的旋转角度
+```
+
+---
+
+#### Step 3：计算 cos 和 sin 值
+
+将角度矩阵复制一份（匹配完整的 head_dim），然后计算 cos 和 sin：
+
+```python
+# 复制以匹配 head_dim: (seq_len, head_dim/2) → (seq_len, head_dim)
+emb = torch.cat((freqs, freqs), dim=-1)
+
+# 计算 cos/sin: (seq_len, head_dim)
+cos = emb.cos()   # cos(m·θ_i) 矩阵
+sin = emb.sin()   # sin(m·θ_i) 矩阵
+```
+
+> **为什么要 cat 复制？** 因为每对维度共享同一个频率。head_dim=128 分成 64 对，每对 (x₀, x₁) 用同一个 θ，所以 cos/sin 需要扩展为 128 维来逐元素操作。
+
+---
+
+#### Step 4：旋转矩阵乘法
+
+有了每个位置的 cos/sin 值，就可以对 Q/K 向量做旋转了。
+
+**2D 旋转的数学原理**：
+
+对于一对维度 (x₀, x₁)，位置 m 的旋转矩阵为：
 
 ```
 [cos(mθ)  -sin(mθ)]   [x₀]   [x₀·cos(mθ) - x₁·sin(mθ)]
 [sin(mθ)   cos(mθ)] × [x₁] = [x₀·sin(mθ) + x₁·cos(mθ)]
 ```
 
-对于高维向量（如 head_dim=128），我们把它分成 64 对，每对使用不同频率的 θ。
+对于高维向量（head_dim=128），64 对维度各自独立旋转（互不干扰），相当于一个分块对角矩阵。
 
-**论文中的数学描述** vs **PyTorch 实际实现**：
+**PyTorch 的高效实现**：
 
-论文中描述的是相邻维度配对：
-```
-维度 0,1:  使用 θ₀ = base^(-0/d)     → 高频，变化快
-维度 2,3:  使用 θ₁ = base^(-2/d)     →
-维度 4,5:  使用 θ₂ = base^(-4/d)     →
-   ...
-维度 126,127: 使用 θ₆₃ = base^(-126/d) → 低频，变化慢
-```
+论文描述的是相邻维度配对 (0,1), (2,3), ...，但 PyTorch 实际使用**前后半配对**——将向量分成前半 `x[:64]` 和后半 `x[64:]`，配对为 (0,64), (1,65), (2,66), ...
 
-但 **PyTorch 实际实现是前后半配对**（以 head_dim=4 为例）：
-```
-论文描述:    (0,1) 用 θ₀,  (2,3) 用 θ₁
-PyTorch实现: (0,2) 用 θ₀,  (1,3) 用 θ₁
-```
+这样做是为了利用连续内存访问，避免交错索引：
 
-这是因为 `rotate_half` 函数将向量分成前后两半，而不是交错取相邻维度：
 ```python
-x1 = x[..., :2]   # [x₀, x₁] 前半
-x2 = x[..., 2:]   # [x₂, x₃] 后半
-rotate_half(x) = [-x₂, -x₃, x₀, x₁]
+def rotate_half(x):
+    """将前半部分和后半部分交换并取反"""
+    x1 = x[..., : x.shape[-1] // 2]    # 前半: [x₀, x₁, ..., x₆₃]
+    x2 = x[..., x.shape[-1] // 2 :]    # 后半: [x₆₄, x₆₅, ..., x₁₂₇]
+    return torch.cat((-x2, x1), dim=-1) # [-x₆₄, ..., -x₁₂₇, x₀, ..., x₆₃]
+
+# 旋转公式（等价于矩阵乘法，但更高效）:
+x_rotated = x * cos + rotate_half(x) * sin
 ```
 
-**两种方式数学上完全等价**，只是维度排列不同。PyTorch 这样实现是为了利用连续内存访问，避免交错索引带来的性能损失。
+**两种配对方式数学上完全等价**，只是维度排列不同。
 
-其中 `base` 通常是 10000（原始 Transformer）或 1000000（Qwen3 长上下文）。
+---
 
-**为什么 RoPE 能编码相对位置**：
+#### Step 5：应用到 Q 和 K
 
-当计算 Q_m · K_n 时（位置 m 的 Q 和位置 n 的 K 的点积）：
+在 Attention 计算中，RoPE **只应用于 Q 和 K，不应用于 V**：
+
+```
+Q_proj ──► Q ──► 应用 RoPE ──┐
+                              ├──► Q·K^T ──► Attention Score ──► ...
+K_proj ──► K ──► 应用 RoPE ──┘
+
+V_proj ──► V ──────────────────────────────────────────────► ...
+                           （V 不需要 RoPE）
+```
+
+```python
+def apply_rotary_pos_emb(q, k, cos, sin):
+    """
+    q, k: (batch, num_heads, seq_len, head_dim)
+    cos, sin: (1, 1, seq_len, head_dim)  — 广播到所有 batch 和 head
+    """
+    q_embed = q * cos + rotate_half(q) * sin
+    k_embed = k * cos + rotate_half(k) * sin
+    return q_embed, k_embed
+```
+
+**为什么 RoPE 能编码相对位置？**
+
+当计算位置 m 的 Q 和位置 n 的 K 的点积时：
 
 ```
 Q_m · K_n = (R(mθ) · q) · (R(nθ) · k)
           = q · R((m-n)θ) · k    ← 只依赖相对距离 (m-n)！
 ```
 
-这意味着模型"看到"的是两个 token 之间的距离，而不是它们的绝对位置。
+旋转矩阵 R 具有正交性：$R(a)^T \cdot R(b) = R(b-a)$。所以 attention score 自然包含了两个 token 之间的相对距离，不需要额外计算。
 
-**核心实现**：
+---
+
+#### 完整代码
+
+将以上 5 步串起来：
 
 ```python
 class RotaryEmbedding(nn.Module):
-    def __init__(self, head_dim: int, base: float = 10000.0):
+    def __init__(self, head_dim: int, base: float = 1000000.0):
         super().__init__()
-        # 计算每对维度的频率: θ_i = base^(-2i/d)
+        # Step 1: 计算 head_dim 维度上的旋转频率
         inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
         self.register_buffer("inv_freq", inv_freq)
 
-    def forward(self, seq_len: int, device: torch.device):
-        # 位置索引: [0, 1, 2, ..., seq_len-1]
-        t = torch.arange(seq_len, device=device, dtype=torch.float32)
+    def forward(self, position_ids):
+        # Step 2: 乘以位置 ID → 每个位置的旋转角度
+        freqs = torch.outer(position_ids[0].float(), self.inv_freq)  # (seq_len, head_dim/2)
 
-        # 计算每个位置、每个频率的角度: (seq_len, head_dim/2)
-        freqs = torch.outer(t, self.inv_freq)
+        # Step 3: 计算 cos/sin
+        emb = torch.cat((freqs, freqs), dim=-1)  # (seq_len, head_dim)
+        return emb.cos().unsqueeze(0), emb.sin().unsqueeze(0)  # (1, seq_len, head_dim)
 
-        # 复制以匹配 head_dim: (seq_len, head_dim)
-        emb = torch.cat((freqs, freqs), dim=-1)
 
-        return emb.cos(), emb.sin()
-```
-
-**应用 RoPE 到 Q 和 K**：
-
-```python
 def apply_rotary_pos_emb(q, k, cos, sin):
-    """
-    q, k: (batch, num_heads, seq_len, head_dim)
-    cos, sin: (seq_len, head_dim)
-    """
+    """Step 4 & 5: 旋转矩阵乘法，应用到 Q 和 K"""
+    cos = cos.unsqueeze(1)  # (1, 1, seq_len, head_dim)
+    sin = sin.unsqueeze(1)
+
     def rotate_half(x):
-        """将后半部分取负并与前半部分交换"""
-        x1 = x[..., : x.shape[-1] // 2]
-        x2 = x[..., x.shape[-1] // 2 :]
+        x1, x2 = x.chunk(2, dim=-1)
         return torch.cat((-x2, x1), dim=-1)
 
-    # 旋转公式: x * cos + rotate_half(x) * sin
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-
+    q_embed = q * cos + rotate_half(q) * sin   # Step 4: 旋转
+    k_embed = k * cos + rotate_half(k) * sin   # Step 5: 应用到 Q 和 K
     return q_embed, k_embed
 ```
 
-**在 Attention 中的位置**：
+---
 
-```
-Q_proj ──► Q ──► RoPE ──┐
-                        ├──► Attention Score ──► ...
-K_proj ──► K ──► RoPE ──┘
-
-V_proj ──► V ────────────────────────────────► ...
-                    （V 不需要 RoPE）
-```
-
-**RoPE 的优势**：
+#### RoPE 总结
 
 | 特性 | 说明 |
 |------|------|
-| **相对位置** | 点积自然包含相对距离，无需显式计算 |
+| **相对位置** | Q·K 点积自然包含相对距离，无需显式计算 |
 | **外推能力** | 理论上可处理训练时未见过的长度 |
-| **零参数量** | 不增加可学习参数 |
-| **计算高效** | 只需简单的乘法和加法 |
+| **零参数量** | inv_freq 是固定公式计算的，不需要学习 |
+| **计算高效** | 只需简单的逐元素乘法和加法 |
 | **兼容性好** | 可与 Flash Attention 等优化技术结合 |
 
 **长上下文扩展**：
