@@ -422,7 +422,60 @@ def generate(
 
     return generated, stats
 
+def load_weights_from_safetensors(model: nn.Module, model_path: str, device: torch.device, dtype: torch.dtype):
+    import glob
+    import safetensors
+    # model_path 可以是一个model目录，也可以是huggingface模型名
+    # 如果是目录则加载其中的safetensors文件，如果是huggingface模型名, 从下载huggingface 下载权重文件，得到目录路径加载。
+    local_dir = _resolve_model_path(model_path)
+    files = sorted(glob.glob(f"{local_dir}/*.safetensors"))
+    if not files:
+        raise FileNotFoundError(f"No safetensors files found in {local_dir}")
+    
+    # 读取所有权重文件到一个大的 state_dict 中
+    state_dict = {}
+    for file in files:
+        with safetensors.safe_open(file, framework="pt", device="cpu") as f:
+            for name in f.keys():
+                state_dict[name] = f.get_tensor(name)
+    # 数据类型转换，device 转换
+    state_dict = {k: v.to(device=device, dtype=dtype) for k, v in state_dict.items()}
 
+    # 加载权重到模型
+    result = model.load_state_dict(state_dict, strict=False)
+    if result.missing_keys:
+        print(f" Warning: Missing keys when loading weights: {result.missing_keys}")
+    if result.unexpected_keys:
+        print(f" Warning: Unexpected keys when loading weights: {result.unexpected_keys}") 
+    model.to(device=device)
+
+def load_weights_from_safetensors(model: nn.Module, model_path: str, device: torch.device, dtype: torch.dtype):
+    import pdb;pdb.set_trace()
+    import glob
+    import safetensors
+    # model_path 可以是一个model目录，也可以是huggingface模型名
+    # 如果是目录则加载其中的safetensors文件，如果是huggingface模型名, 从下载huggingface 下载权重文件，得到目录路径加载。
+    local_dir = _resolve_model_path(model_path)
+    files = sorted(glob.glob(f"{local_dir}/*.safetensors"))
+    if not files:
+        raise FileNotFoundError(f"No safetensors files found in {local_dir}")
+    
+    # 读取所有权重文件到一个大的 state_dict 中
+    state_dict = {}
+    for file in files:
+        with safetensors.safe_open(file, framework="pt", device="cpu") as f:
+            for name in f.keys():
+                state_dict[name] = f.get_tensor(name)
+    # 数据类型转换，device 转换
+    state_dict = {k: v.to(device=device, dtype=dtype) for k, v in state_dict.items()}
+
+    # 加载权重到模型
+    result = model.load_state_dict(state_dict, strict=False)
+    if result.missing_keys:
+        print(f" Warning: Missing keys when loading weights: {result.missing_keys}")
+    if result.unexpected_keys:
+        print(f" Warning: Unexpected keys when loading weights: {result.unexpected_keys}") 
+    model.to(device=device)
 # ============================================================================
 # 11. 主函数
 # ============================================================================
