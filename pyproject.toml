@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aios"
+version = "0.1.0"
+description = "AIOS LLM Inference Engine (Teaching Project)"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "safetensors",
+    "transformers",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
