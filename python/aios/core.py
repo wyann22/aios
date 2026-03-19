@@ -8,6 +8,7 @@ class SamplingParams:
     temperature: float = 0.0
     top_k: int = -1
     top_p: float = 1.0
+    ignore_eos: bool = False
     max_tokens: int = 1024
 
     @property

@@ -42,15 +42,21 @@ class LLM:
     def generate(
         self,
         prompts: List[str] | List[List[int]],
-        sampling_params: SamplingParams | None = None,
+        sampling_params: SamplingParams | List[SamplingParams] | None = None,
     ) -> List[dict]:
         if sampling_params is None:
             sampling_params = SamplingParams()
 
-        sampler = Sampler(sampling_params)
+        # Normalize to per-request sampling params list
+        if isinstance(sampling_params, SamplingParams):
+            params_list = [sampling_params] * len(prompts)
+        else:
+            params_list = sampling_params
 
         results = []
-        for prompt in prompts:
+        for prompt, sp in zip(prompts, params_list):
+            sampler = Sampler(sp)
+
             if isinstance(prompt, str):
                 messages = [{"role": "user", "content": prompt}]
                 text = self.tokenizer.apply_chat_template(
@@ -61,13 +67,13 @@ class LLM:
                 input_ids = torch.tensor([prompt], device=self.device)
 
             generated = input_ids.clone()
-            for _ in range(sampling_params.max_tokens):
+            for _ in range(sp.max_tokens):
                 logits = self.model.forward(generated)
                 next_logits = logits[:, -1, :]
                 next_token = sampler.sample(next_logits)
 
                 generated = torch.cat([generated, next_token], dim=-1)
-                if next_token.item() == self.tokenizer.eos_token_id:
+                if not sp.ignore_eos and next_token.item() == self.tokenizer.eos_token_id:
                     break
 
             new_token_ids = generated[0][input_ids.shape[1]:].tolist()
