@@ -297,7 +297,7 @@ fig.legend(handles=legend_elements, loc="lower center", ncol=4, fontsize=FS + 2,
            frameon=True, fancybox=True, shadow=True)
 
 plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-plt.savefig("/home/wyann/mini-sglang/no_kv_cache.png", dpi=100, bbox_inches="tight")
+plt.savefig("./no_kv_cache.png", dpi=100, bbox_inches="tight")
 plt.close()
 print("Saved: no_kv_cache.png")
 
@@ -324,7 +324,7 @@ draw_step(axes[0],
 # Decode 1
 draw_step(axes[1],
           q_states=["new"], k_states=["read", "new"],
-          attn_matrix=[["read", "new"]],
+          attn_matrix=[["new", "new"]],
           v_states=["read", "new"],
           mlp_in=["new"], mlp_out=["new"], output_token=OUT[1],
           title="Decode 1  —  input: [my]",
@@ -333,7 +333,7 @@ draw_step(axes[1],
 # Decode 2
 draw_step(axes[2],
           q_states=["new"], k_states=["read", "read", "new"],
-          attn_matrix=[["read", "read", "new"]],
+          attn_matrix=[["new", "new", "new"]],
           v_states=["read", "read", "new"],
           mlp_in=["new"], mlp_out=["new"], output_token=OUT[2],
           title="Decode 2  —  input: [name]",
@@ -342,7 +342,7 @@ draw_step(axes[2],
 # Decode 3
 draw_step(axes[3],
           q_states=["new"], k_states=["read", "read", "read", "new"],
-          attn_matrix=[["read", "read", "read", "new"]],
+          attn_matrix=[["new", "new", "new", "new"]],
           v_states=["read", "read", "read", "new"],
           mlp_in=["new"], mlp_out=["new"], output_token=OUT[3],
           title="Decode 3  —  input: [is]",
@@ -357,7 +357,7 @@ fig.legend(handles=legend_elements, loc="lower center", ncol=3, fontsize=FS + 2,
            frameon=True, fancybox=True, shadow=True)
 
 plt.tight_layout(rect=[0, 0.03, 1, 0.98])
-plt.savefig("/home/wyann/mini-sglang/with_kv_cache.png", dpi=100, bbox_inches="tight")
+plt.savefig("./with_kv_cache.png", dpi=100, bbox_inches="tight")
 plt.close()
 print("Saved: with_kv_cache.png")
 
@@ -408,6 +408,6 @@ ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 
 plt.tight_layout()
-plt.savefig("/home/wyann/mini-sglang/flops_comparison.png", dpi=150, bbox_inches="tight")
+plt.savefig("./flops_comparison", dpi=150, bbox_inches="tight")
 plt.close()
 print("Saved: flops_comparison.png")
