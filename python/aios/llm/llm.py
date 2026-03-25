@@ -8,7 +8,7 @@ from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 
 from ..models import ModelConfig, create_model, load_weights
-from ..engine import Sampler
+from ..engine import DynamicKVCache, Sampler
 from ..core import SamplingParams
 
 
@@ -27,6 +27,7 @@ class LLM:
         model_path = _resolve_model_path(model_path)
         hf_config = AutoConfig.from_pretrained(model_path)
         config = ModelConfig.from_hf(hf_config)
+        self._num_layers = config.num_layers
 
         with torch.device("meta"):
             self.model = create_model(model_path, config)
@@ -43,6 +44,7 @@ class LLM:
         self,
         prompts: List[str] | List[List[int]],
         sampling_params: SamplingParams | List[SamplingParams] | None = None,
+        use_kv_cache: bool = True,
     ) -> List[dict]:
         if sampling_params is None:
             sampling_params = SamplingParams()
@@ -67,14 +69,20 @@ class LLM:
                 input_ids = torch.tensor([prompt], device=self.device)
 
             generated = input_ids.clone()
+
+            kv_cache = DynamicKVCache(self._num_layers) if use_kv_cache else None
+            model_input = input_ids
+
             for _ in range(sp.max_tokens):
-                logits = self.model.forward(generated)
+                logits = self.model.forward(model_input, kv_cache=kv_cache)
                 next_logits = logits[:, -1, :]
                 next_token = sampler.sample(next_logits)
-
                 generated = torch.cat([generated, next_token], dim=-1)
+
                 if not sp.ignore_eos and next_token.item() == self.tokenizer.eos_token_id:
                     break
+
+                model_input = next_token if use_kv_cache else generated
 
             new_token_ids = generated[0][input_ids.shape[1]:].tolist()
             text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)
