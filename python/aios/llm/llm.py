@@ -9,6 +9,8 @@ from transformers import AutoConfig, AutoTokenizer
 
 from ..models import ModelConfig, create_model, load_weights
 from ..engine import DynamicKVCache, Sampler
+from ..kvcache import MHAKVCache, KVCacheLayout
+from ..scheduler import CacheManager
 from ..core import SamplingParams
 
 
@@ -34,10 +36,26 @@ class LLM:
 
         load_weights(self.model, model_path, self.device, self.dtype)
 
+
         # Move rotary embedding cache to device
         self.model.model._rotary_emb.set_device(self.device)
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        
+        # Paged KV Cache Memory Pool
+        self.num_pages = 2048 # ~128MB per token/layer pool
+        self.mha_kv_cache = MHAKVCache(
+            num_kv_heads=config.num_kv_heads,
+            num_layers=config.num_layers,
+            head_dim=config.head_dim,
+            num_pages=self.num_pages,
+            dtype=self.dtype,
+            kv_layout=KVCacheLayout.LayerFirst,
+            device=self.device,
+            page_size=1
+        )
+        self.cache_manager = CacheManager(self.device, self.num_pages)
+
 
     @torch.no_grad()
     def generate(
@@ -45,6 +63,7 @@ class LLM:
         prompts: List[str] | List[List[int]],
         sampling_params: SamplingParams | List[SamplingParams] | None = None,
         use_kv_cache: bool = True,
+        use_paged_kv_cache: bool = False,
     ) -> List[dict]:
         if sampling_params is None:
             sampling_params = SamplingParams()
@@ -70,11 +89,27 @@ class LLM:
 
             generated = input_ids.clone()
 
-            kv_cache = DynamicKVCache(self._num_layers) if use_kv_cache else None
+            kv_cache = None
+            paged_block_table = None
+            paged_seq_len = 0
+            if use_paged_kv_cache:
+                paged_block_table = self.cache_manager.allocate(input_ids.shape[1])
+            elif use_kv_cache:
+                kv_cache = DynamicKVCache(self._num_layers)
+
             model_input = input_ids
 
-            for _ in range(sp.max_tokens):
-                logits = self.model.forward(model_input, kv_cache=kv_cache)
+            for step in range(sp.max_tokens):
+                if use_paged_kv_cache:
+                    logits = self.model.forward(
+                        model_input,
+                        paged_kv_cache=self.mha_kv_cache,
+                        paged_block_table=paged_block_table,
+                        paged_seq_len=paged_seq_len,
+                    )
+                else:
+                    logits = self.model.forward(model_input, kv_cache=kv_cache)
+
                 next_logits = logits[:, -1, :]
                 next_token = sampler.sample(next_logits)
                 generated = torch.cat([generated, next_token], dim=-1)
@@ -82,7 +117,15 @@ class LLM:
                 if not sp.ignore_eos and next_token.item() == self.tokenizer.eos_token_id:
                     break
 
-                model_input = next_token if use_kv_cache else generated
+                if use_paged_kv_cache:
+                    paged_seq_len = generated.shape[1] - 1
+                    new_block = self.cache_manager.allocate(1)
+                    paged_block_table = torch.cat([paged_block_table, new_block])
+
+                model_input = next_token if (kv_cache is not None or use_paged_kv_cache) else generated
+
+            if paged_block_table is not None:
+                self.cache_manager._free(paged_block_table)
 
             new_token_ids = generated[0][input_ids.shape[1]:].tolist()
             text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)

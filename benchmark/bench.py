@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--max-input-len", type=int, default=1024)
     parser.add_argument("--max-output-len", type=int, default=1024)
     parser.add_argument("--no-kv-cache", action="store_true", help="Disable lesson-4 KV cache path")
+    parser.add_argument("--paged-kv-cache", action="store_true", help="Enable lesson-6 Paged KV cache")
     args = parser.parse_args()
 
     seed(0)
@@ -38,10 +39,10 @@ def main():
     ]
 
     # warm up
-    llm.generate(["Benchmark: "], SamplingParams(temperature=0.1), use_kv_cache=not args.no_kv_cache)
+    llm.generate(["Benchmark: "], SamplingParams(temperature=0.1), use_kv_cache=not args.no_kv_cache, use_paged_kv_cache=args.paged_kv_cache)
 
     t = time.time()
-    llm.generate(prompt_token_ids, sampling_params, use_kv_cache=not args.no_kv_cache)
+    llm.generate(prompt_token_ids, sampling_params, use_kv_cache=not args.no_kv_cache, use_paged_kv_cache=args.paged_kv_cache)
     t = time.time() - t
 
     total_tokens = sum(sp.max_tokens for sp in sampling_params)

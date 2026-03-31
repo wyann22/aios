@@ -21,6 +21,7 @@ from .base import BaseLLMModel
 
 if TYPE_CHECKING:
     from .config import ModelConfig
+    from aios.kvcache import MHAKVCache
 
 
 class Qwen3Attention(BaseOP):
@@ -46,6 +47,9 @@ class Qwen3Attention(BaseOP):
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         attention_mask: torch.Tensor,
         kv_cache: Any | None = None,
+        paged_kv_cache: MHAKVCache | None = None,
+        paged_block_table: torch.Tensor | None = None,
+        paged_seq_len: int = 0,
     ) -> torch.Tensor:
         bsz, seq_len, _ = hidden_states.shape
 
@@ -65,7 +69,19 @@ class Qwen3Attention(BaseOP):
         cos, sin = position_embeddings
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        if kv_cache is not None:
+        if paged_kv_cache is not None:
+            assert paged_block_table is not None, "paged_block_table is required with paged_kv_cache"
+            assert bsz == 1, "Paged KV path only supports bsz=1 in current lesson path"
+
+            out_loc = paged_block_table[paged_seq_len : paged_seq_len + seq_len]
+            k_to_store = k[0].transpose(0, 1)
+            v_to_store = v[0].transpose(0, 1)
+            paged_kv_cache.store_kv(k_to_store, v_to_store, out_loc, self._layer_idx)
+
+            all_locs = paged_block_table[: paged_seq_len + seq_len]
+            k = paged_kv_cache.k_cache(self._layer_idx)[all_locs, :, 0, :].transpose(0, 1).unsqueeze(0)
+            v = paged_kv_cache.v_cache(self._layer_idx)[all_locs, :, 0, :].transpose(0, 1).unsqueeze(0)
+        elif kv_cache is not None:
             k, v = kv_cache.update(self._layer_idx, k, v)
 
         k = repeat_kv(k, self.num_kv_groups)
@@ -109,6 +125,9 @@ class Qwen3DecoderLayer(BaseOP):
         attention_mask: torch.Tensor,
         position_embeddings: tuple[torch.Tensor, torch.Tensor],
         kv_cache: Any | None = None,
+        paged_kv_cache: MHAKVCache | None = None,
+        paged_block_table: torch.Tensor | None = None,
+        paged_seq_len: int = 0,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm.forward(hidden_states)
@@ -117,6 +136,9 @@ class Qwen3DecoderLayer(BaseOP):
             position_embeddings,
             attention_mask,
             kv_cache=kv_cache,
+            paged_kv_cache=paged_kv_cache,
+            paged_block_table=paged_block_table,
+            paged_seq_len=paged_seq_len,
         )
         hidden_states = residual + hidden_states
 
@@ -136,11 +158,18 @@ class Qwen3Model(BaseOP):
             config.head_dim, config.max_position_embeddings, config.rope_theta
         )
 
-    def forward(self, input_ids: torch.Tensor, kv_cache: Any | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        kv_cache: Any | None = None,
+        paged_kv_cache: MHAKVCache | None = None,
+        paged_block_table: torch.Tensor | None = None,
+        paged_seq_len: int = 0,
+    ) -> torch.Tensor:
         bsz, seq_len = input_ids.shape
         hidden_states = self.embed_tokens.forward(input_ids)
 
-        past_len = kv_cache.get_seq_len() if kv_cache is not None else 0
+        past_len = paged_seq_len if paged_kv_cache is not None else (kv_cache.get_seq_len() if kv_cache is not None else 0)
 
         position_ids = torch.arange(
             past_len,
@@ -164,6 +193,9 @@ class Qwen3Model(BaseOP):
                 causal_mask,
                 position_embeddings,
                 kv_cache=kv_cache,
+                paged_kv_cache=paged_kv_cache,
+                paged_block_table=paged_block_table,
+                paged_seq_len=paged_seq_len,
             )
         return self.norm.forward(hidden_states)
 
@@ -178,6 +210,19 @@ class Qwen3ForCausalLM(BaseLLMModel):
             tied_embedding=self.model.embed_tokens if config.tie_word_embeddings else None,
         )
 
-    def forward(self, input_ids: torch.Tensor, kv_cache: Any | None = None) -> torch.Tensor:
-        hidden_states = self.model.forward(input_ids, kv_cache=kv_cache)
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        kv_cache: Any | None = None,
+        paged_kv_cache: MHAKVCache | None = None,
+        paged_block_table: torch.Tensor | None = None,
+        paged_seq_len: int = 0,
+    ) -> torch.Tensor:
+        hidden_states = self.model.forward(
+            input_ids,
+            kv_cache=kv_cache,
+            paged_kv_cache=paged_kv_cache,
+            paged_block_table=paged_block_table,
+            paged_seq_len=paged_seq_len,
+        )
         return self.lm_head.forward(hidden_states)

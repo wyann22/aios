@@ -42,4 +42,11 @@ class BaseLLMModel(ABC, BaseOP):
         cls.forward = timed_forward
 
     @abstractmethod
-    def forward(self, input_ids: torch.Tensor, kv_cache: Any | None = None) -> torch.Tensor: ...
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        kv_cache: Any | None = None,
+        paged_kv_cache: Any | None = None,
+        paged_block_table: torch.Tensor | None = None,
+        paged_seq_len: int = 0,
+    ) -> torch.Tensor: ...

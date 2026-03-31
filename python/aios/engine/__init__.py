@@ -1,4 +1,4 @@
 from .sample import Sampler
-from .kv_cache import DynamicKVCache
+from ..kvcache import DynamicKVCache
 
 __all__ = ["Sampler", "DynamicKVCache"]
