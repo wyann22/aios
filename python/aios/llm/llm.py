@@ -11,7 +11,7 @@ from ..models import ModelConfig, create_model, load_weights
 from ..engine import DynamicKVCache, Sampler
 from ..kvcache import MHAKVCache, KVCacheLayout
 from ..scheduler import CacheManager
-from ..core import SamplingParams
+from ..core import Req, SamplingParams
 
 
 def _resolve_model_path(model_path: str) -> str:
@@ -90,10 +90,17 @@ class LLM:
             generated = input_ids.clone()
 
             kv_cache = None
-            paged_block_table = None
-            paged_seq_len = 0
+            req: Req | None = None
             if use_paged_kv_cache:
-                paged_block_table = self.cache_manager.allocate(input_ids.shape[1])
+                block_table = self.cache_manager.allocate(input_ids.shape[1])
+                req = Req(
+                    input_ids=input_ids[0],
+                    cached_len=0,
+                    output_len=sp.max_tokens,
+                    uid=0,
+                    sampling_params=sp,
+                    block_table=block_table,
+                )
             elif use_kv_cache:
                 kv_cache = DynamicKVCache(self._num_layers)
 
@@ -101,11 +108,11 @@ class LLM:
 
             for step in range(sp.max_tokens):
                 if use_paged_kv_cache:
+                    assert req is not None
                     logits = self.model.forward(
                         model_input,
                         paged_kv_cache=self.mha_kv_cache,
-                        paged_block_table=paged_block_table,
-                        paged_seq_len=paged_seq_len,
+                        req=req,
                     )
                 else:
                     logits = self.model.forward(model_input, kv_cache=kv_cache)
@@ -118,14 +125,15 @@ class LLM:
                     break
 
                 if use_paged_kv_cache:
-                    paged_seq_len = generated.shape[1] - 1
+                    assert req is not None and req.block_table is not None
+                    req.complete_one()
                     new_block = self.cache_manager.allocate(1)
-                    paged_block_table = torch.cat([paged_block_table, new_block])
+                    req.block_table = torch.cat([req.block_table, new_block])
 
                 model_input = next_token if (kv_cache is not None or use_paged_kv_cache) else generated
 
-            if paged_block_table is not None:
-                self.cache_manager._free(paged_block_table)
+            if req is not None and req.block_table is not None:
+                self.cache_manager._free(req.block_table[: req.cached_len])
 
             new_token_ids = generated[0][input_ids.shape[1]:].tolist()
             text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)

@@ -1,14 +1,8 @@
-# Lesson 6: Paged KV Cache（按当前 AIOS 代码实现）
-
-本文档严格对应当前仓库代码（`2026-04-05`），按你指定的 1-6 结构说明。
+# Lesson 5: Paged KV Cache
 
 ## 1. Dynamic Cache 示意图，说明优缺点
 
-图文件：
-
-- `resources/lesson-6-paged-kv-cache/dynamic_kv_cache.dot`
-- `resources/lesson-6-paged-kv-cache/dynamic_kv_cache.svg`
-
+![Dynamic KV Cache 示意图](dynamic_kv_cache.svg)
 图里每个小方块代表一个 token 的 KV 占用。Dynamic 的增长路径是：每步生成新 token 时，用 `torch.cat` 拼接历史与新 token。
 
 当前实现位置：
@@ -29,11 +23,6 @@
 
 ## 2. Preallocated Cache 示意图，说明优缺点
 
-图文件：
-
-- `resources/lesson-6-paged-kv-cache/preallocated_kv_cache.dot`
-- `resources/lesson-6-paged-kv-cache/preallocated_kv_cache.svg`
-
 ![Preallocated KV Cache 示意图](preallocated_kv_cache.svg)
 
 图里每个小方块也是一个 token 槽位。Preallocated 是“先按 `max_seq_len` 整块预留，再按位置写入”。
@@ -50,10 +39,7 @@
 
 ## 3. 简要介绍操作系统的分页内存管理机制
 
-图文件：
-
-- `resources/lesson-6-paged-kv-cache/os_paging_memory.dot`
-- `resources/lesson-6-paged-kv-cache/os_paging_memory.svg`
+![操作系统分页内存管理示意图](os_paging_memory.svg)
 
 操作系统分页的核心是三点：
 
@@ -69,10 +55,9 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 
 ## 4. Paged KV Cache 示意图，说明优点
 
-图文件：
+![Paged KV Cache Prefill 流程图](paged_kv_cache_prefill.svg)
 
-- `resources/lesson-6-paged-kv-cache/paged_kv_cache.dot`
-- `resources/lesson-6-paged-kv-cache/paged_kv_cache.svg`
+![Paged KV Cache Decode 流程图](paged_kv_cache_decode.svg)
 
 在当前 AIOS 实现里（`page_size=1`），每个 token 对应一个 page 槽位。
 
@@ -81,7 +66,7 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 - `block_table`：逻辑 token 下标到物理 page 下标的映射。
 - `free_slots`：空闲 page 列表。
 - `MHAKVCache`：底层 KV 物理池（只做物理存储）。
-- 请求态（`block_table` / `seq_len`）由 `LLM.generate()` 直接维护。
+- 请求态由 `Req`（`cached_len` / `device_len` / `block_table`）维护。
 
 优点：
 
@@ -91,27 +76,25 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 
 ## 5. Paged KV Cache 整体架构图（按照 AIOS 当前代码实现）
 
-图文件：
-
-- `resources/lesson-6-paged-kv-cache/paged_kv_architecture_aios.dot`
-- `resources/lesson-6-paged-kv-cache/paged_kv_architecture_aios.svg`
+![AIOS Paged KV 整体架构图](paged_kv_architecture_aios.svg)
 
 当前代码的关键事实：
 
 - 没有 `PagedKVCache` 类。
 - 没有 `PagedRequestCache` 类。
-- 请求态在 `LLM.generate()` 本地变量中维护。
+- 请求态在 `Req` 对象中维护（参考 mini-sglang 的组织方式）。
 - 共享物理池在 `MHAKVCache`。
 
 对应代码：
 
+- 请求态数据结构：`python/aios/core.py` (`Req`)
 - 入口与调度：`python/aios/llm/llm.py`
 - 分配释放：`python/aios/scheduler/cache.py` (`allocate`, `_free`)
 - 底层存储：`python/aios/kvcache/mha_pool.py` (`store_kv`)
-- 注意力调用：`python/aios/models/qwen3.py`（paged 参数路径）
+- 注意力调用：`python/aios/models/qwen3.py`（`req` + paged 路径）
 - 动态路径：`python/aios/kvcache/dynamic.py`
 
-补充：`CacheManager` 中 `lock/unlock` 等前缀缓存接口当前处于注释状态，lesson-6 路径实际使用的是最小子集（`allocate/_free`）。
+补充：`CacheManager` 中 `lock/unlock` 等前缀缓存接口当前处于注释状态，lesson5 路径实际使用的是最小子集（`allocate/_free`）。
 
 ## 6. 一个例子走完整条代码路径
 
@@ -137,13 +120,14 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 
 代码：`python/aios/llm/llm.py`
 
-- `paged_block_table = self.cache_manager.allocate(input_ids.shape[1])`
-- prompt=4 时，拿到例如 `[0,1,2,3]`
-- `paged_seq_len = 0`
+- 构建 `Req(...)`，并初始化：
+- `block_table = self.cache_manager.allocate(input_ids.shape[1])`
+- prompt=4 时，`block_table=[0,1,2,3]`
+- `cached_len=0`, `device_len=4`
 
 此时：
 
-- 请求态：`block_table=[0,1,2,3]`, `paged_seq_len=0`
+- 请求态：`Req(block_table=[0,1,2,3], cached_len=0, device_len=4)`
 - 全局空闲：`_free_slots=[4,5,...]`
 
 ### Step C：prefill forward（一次输入 4 个 token）
@@ -151,17 +135,17 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 代码链路：
 
 - `Qwen3Model.forward()` -> `Qwen3Attention.forward()`
-- paged 参数：`paged_kv_cache + paged_block_table + paged_seq_len`
+- paged 参数：`paged_kv_cache + req`
 
 `python/aios/models/qwen3.py` 里：
 
-1. `out_loc = block_table[paged_seq_len:paged_seq_len+seq_len]`
-2. prefill 时 `paged_seq_len=0`, `seq_len=4`，所以 `out_loc=[0,1,2,3]`
+1. `out_loc = req.block_table[req.cached_len:req.cached_len+seq_len]`
+2. prefill 时 `req.cached_len=0`, `seq_len=4`，所以 `out_loc=[0,1,2,3]`
 3. 写入物理池：`paged_kv_cache.store_kv(...)`
 4. 读取历史：`all_locs=block_table[:4]`
 5. gather 出 `full_k/full_v`，返回给 attention
 
-注意：请求态由 `LLM.generate()` 管理；`MHAKVCache` 只管物理数据。
+注意：请求态由 `Req` 管理；`MHAKVCache` 只管物理数据。
 
 ### Step D：采样第一个新 token 后，追加 1 个 page
 
@@ -169,17 +153,17 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 
 - `generated` 长度从 4 变 5
 - 若未结束（非 EOS），执行：
-- `paged_seq_len = generated.shape[1] - 1 = 4`
+- `req.complete_one()`，把 `cached_len` 从 0 更新到 4
 - `new_block = self.cache_manager.allocate(1)`（例如 `[4]`）
-- `paged_block_table = cat([0,1,2,3], [4]) -> [0,1,2,3,4]`
+- `req.block_table = cat([0,1,2,3], [4]) -> [0,1,2,3,4]`
 
 ### Step E：decode forward（输入单 token `n0`）
 
 `Qwen3Attention.forward` 的 paged 路径中：
 
 - `seq_len=1`
-- `out_loc = block_table[4:5] = [4]`（新 token 写到 page 4）
-- `all_locs = block_table[:5] = [0,1,2,3,4]`
+- `out_loc = req.block_table[req.cached_len:req.cached_len+1] = [4]`
+- `all_locs = req.block_table[:5] = [0,1,2,3,4]`
 - 返回长度为 5 的历史 KV 给 attention
 
 然后同理处理 `n1`，再追加一个 page（例如 5）。
@@ -188,7 +172,7 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 
 代码：`python/aios/llm/llm.py`
 
-- `self.cache_manager._free(paged_block_table)`
+- `self.cache_manager._free(req.block_table)`
 - 把本请求占用的 page 归还 `free_slots`。
 
 ### 这个例子的状态快照
@@ -198,7 +182,9 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
   free_slots = [0,1,2,3,4,5,...]
 
 allocate prompt=4:
-  block_table = [0,1,2,3]
+  req.block_table = [0,1,2,3]
+  req.cached_len = 0
+  req.device_len = 4
   free_slots  = [4,5,6,...]
 
 prefill(seq=4):
@@ -206,7 +192,8 @@ prefill(seq=4):
   all_locs = [0,1,2,3]
 
 decode n0 前追加 1 page:
-  block_table = [0,1,2,3,4]
+  req.complete_one() -> cached_len = 4
+  req.block_table = [0,1,2,3,4]
   free_slots  = [5,6,...]
 
 decode(seq=1):
@@ -220,7 +207,7 @@ decode(seq=1):
 以上就是当前 AIOS 代码里 paged KV 的完整闭环：
 
 - 分配：`CacheManager.allocate`
-- 请求态维护：`LLM.generate` 本地变量（`block_table`, `paged_seq_len`）
+- 请求态维护：`Req(cached_len, device_len, block_table)`
 - 写入：`MHAKVCache.store_kv`
 - 读取：`Qwen3Attention.forward` 的 paged 路径内 gather
 - 释放：`CacheManager._free`

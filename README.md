@@ -65,7 +65,7 @@ Each lesson adds one major optimization. Here's the throughput progression:
 - **[Lesson 3: Remove HuggingFace Dependencies](resources/lesson-3-remove-hf-deps/README.md)** — Own your model: pure nn.Module, direct safetensors loading, manual generation loop
 - **[Lesson 4: Prefill/Decode Split](resources/lesson-4-kv-cache/README.md)** — Understanding KV cache: O(n²) → O(n) compute, 5x speedup
 - **[Lesson 5: Pre-allocated KV Cache](resources/lesson-5-preallocated-kv-cache/README.md)** — Stop memory fragmentation: contiguous cache, position-indexed writes, fused RMSNorm
-- **[Lesson 6: Paged KV Cache](resources/lesson-6-paged-kv-cache/README.md)** — Virtual memory for LLM: block allocator, block tables, slot mapping
+- **[Lesson 5: Paged KV Cache](resources/lesson-5-paged-kv-cache/README.md)** — Virtual memory for LLM: block allocator, block tables, slot mapping
 - **[Lesson 7: Batching](resources/lesson-7-batching/README.md)** — Variable-length batching with cu_seqlens, the Context pattern, 13x throughput
 - **[Lesson 8: The Scheduler](resources/lesson-8-scheduler/README.md)** — Continuous batching, prefill-first scheduling, preemption, engine loop
 

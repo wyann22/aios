@@ -47,6 +47,5 @@ class BaseLLMModel(ABC, BaseOP):
         input_ids: torch.Tensor,
         kv_cache: Any | None = None,
         paged_kv_cache: Any | None = None,
-        paged_block_table: torch.Tensor | None = None,
-        paged_seq_len: int = 0,
+        req: Any | None = None,
     ) -> torch.Tensor: ...

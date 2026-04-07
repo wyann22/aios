@@ -1,4 +1,4 @@
-# Lesson 6: Paged / Blocked KV Cache
+# Lesson 5: Paged / Blocked KV Cache
 
 ## Concept
 In previous lessons we introduced `torch.cat` (dynamic tensor growth, leading to copying overhead) and learned about contiguous allocation mapping. Pre-allocating max max context lengths for every request statically is computationally wasteful (causing large OOM at scale). 
@@ -14,12 +14,12 @@ The generation attention loop uses an array representing `block_table[logical_to
 In `aios`:
 - A pool `MHAKVCache` allocates the overall memory layout as `[num_pages, num_layers, num_kv_heads, page_size, head_dim]`.
 - A `CacheManager` with a `NaiveCacheManager` manages free slots using integer IDs (`0...num_pages-1`).
-- `LLM.generate()` maintains request state (`block_table`, `paged_seq_len`) in the paged path.
-- `Qwen3Attention` writes via `MHAKVCache.store_kv(...)` and gathers history by `block_table` directly.
+- Request state is maintained by `Req` (`cached_len`, `device_len`, `block_table`) in the paged path.
+- `Qwen3Attention` writes via `MHAKVCache.store_kv(...)` and gathers history by `req.block_table`.
 
 ## Run Exercise
 
 ```bash
-python resources/lesson-6-paged-kv-cache/run_lesson6.py
+python resources/lesson-5-paged-kv-cache/run_lesson5.py
 ```
 This script benchmarks the `DynamicKVCache` logic side-by-side with the paged path (`block_table + MHAKVCache`) to visualize how chunked writes and indexing operate seamlessly with basic autoregressive inference.

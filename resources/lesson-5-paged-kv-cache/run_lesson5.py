@@ -1,5 +1,5 @@
 """
-Lesson 6 runner that invokes benchmark/bench.py testing paged memory cache allocation.
+Lesson 5 runner that invokes benchmark/bench.py testing paged memory cache allocation.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def main() -> None:
         cwd=repo_root,
     )
 
-    print("\n=== Lesson 6 Performance Comparison ===")
+    print("\n=== Lesson 5 Performance Comparison ===")
     print(f"Dynamic KV cache:    {cache_tps:.2f} tok/s ({cache_time:.2f}s)")
     print(f"Paged KV cache:      {paged_tps:.2f} tok/s ({paged_time:.2f}s)")
     if cache_tps > 0:
