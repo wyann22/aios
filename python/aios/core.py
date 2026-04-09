@@ -30,6 +30,7 @@ class Req:
     sampling_params: SamplingParams
     cache_handle: Any | None = None
     block_table: torch.Tensor | None = None
+    trace_paged_kv: bool = False
 
     def __post_init__(self) -> None:
         self.device_len = len(self.input_ids)

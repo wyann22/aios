@@ -25,6 +25,15 @@ if TYPE_CHECKING:
     from aios.kvcache import MHAKVCache
 
 
+def _short_tensor(tensor: torch.Tensor, max_items: int = 12) -> str:
+    values = tensor.detach().cpu().tolist()
+    if len(values) <= max_items:
+        return str(values)
+    head = values[: max_items // 2]
+    tail = values[-(max_items - len(head)) :]
+    return f"{head} ... {tail} (len={len(values)})"
+
+
 class Qwen3Attention(BaseOP):
     def __init__(self, config: ModelConfig, layer_idx: int):
         self.num_heads = config.num_qo_heads
@@ -80,6 +89,11 @@ class Qwen3Attention(BaseOP):
             paged_kv_cache.store_kv(k_to_store, v_to_store, out_loc, self._layer_idx)
 
             all_locs = block_table[: req.cached_len + seq_len]
+            if req.trace_paged_kv and self._layer_idx == 0:
+                print(
+                    f"[PagedKV] store_kv req={req.uid}: "
+                    f"out_loc={_short_tensor(out_loc)}, all_locs={_short_tensor(all_locs)}"
+                )
             k = paged_kv_cache.k_cache(self._layer_idx)[all_locs, :, 0, :].transpose(0, 1).unsqueeze(0)
             v = paged_kv_cache.v_cache(self._layer_idx)[all_locs, :, 0, :].transpose(0, 1).unsqueeze(0)
         elif kv_cache is not None:

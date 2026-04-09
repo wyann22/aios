@@ -1,0 +1,58 @@
+digraph OSPagingMemory {
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.35;
+    ranksep=0.55;
+    fontname="Helvetica";
+    fontsize=11;
+    labelloc="t";
+    label="OS Paging (Virtual -> Physical)";
+
+    node [shape=plain fontname="Helvetica"];
+
+    vmem [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="5" BGCOLOR="#f5f5f5"><B>Virtual Pages</B></TD></TR>
+        <TR>
+          <TD BGCOLOR="#e8f5e9">V0</TD>
+          <TD BGCOLOR="#e8f5e9">V1</TD>
+          <TD BGCOLOR="#e8f5e9">V2</TD>
+          <TD BGCOLOR="#e8f5e9">V3</TD>
+          <TD BGCOLOR="#e8f5e9">V4</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    ptable [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="2" BGCOLOR="#f5f5f5"><B>Page Table</B></TD></TR>
+        <TR><TD>V0</TD><TD>P7</TD></TR>
+        <TR><TD>V1</TD><TD>P2</TD></TR>
+        <TR><TD>V2</TD><TD>P9</TD></TR>
+        <TR><TD>V3</TD><TD>P1</TD></TR>
+        <TR><TD>V4</TD><TD>P5</TD></TR>
+      </TABLE>
+    >];
+
+    pmem [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="10" BGCOLOR="#f5f5f5"><B>Physical Frames</B></TD></TR>
+        <TR>
+          <TD>P0</TD>
+          <TD BGCOLOR="#fff3e0">P1</TD>
+          <TD BGCOLOR="#fff3e0">P2</TD>
+          <TD>P3</TD>
+          <TD>P4</TD>
+          <TD BGCOLOR="#fff3e0">P5</TD>
+          <TD>P6</TD>
+          <TD BGCOLOR="#fff3e0">P7</TD>
+          <TD>P8</TD>
+          <TD BGCOLOR="#fff3e0">P9</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    vmem -> ptable [label="lookup" color="#607d8b" fontcolor="#455a64"];
+    ptable -> pmem [label="translate" color="#607d8b" fontcolor="#455a64"];
+}
+

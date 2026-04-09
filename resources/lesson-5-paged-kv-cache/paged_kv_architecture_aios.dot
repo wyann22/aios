@@ -1,0 +1,25 @@
+digraph PagedKVArchitectureAIOS {
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.35;
+    ranksep=0.55;
+    fontname="Helvetica";
+    fontsize=11;
+    labelloc="t";
+    label="AIOS Paged KV Cache Architecture";
+
+    node [shape=box style="rounded,filled" color="#455a64" fillcolor="#eceff1" fontname="Helvetica" fontsize=10];
+    edge [color="#607d8b" arrowsize=0.8 fontname="Helvetica" fontsize=10];
+
+    llm [label="LLM.generate"];
+    cm [label="CacheManager"];
+    state [label="Req\n(cached_len, device_len, block_table)"];
+    pool [label="MHAKVCache\nKV Pool"];
+    qwen [label="Qwen3 Attention\n(paged_kv_cache + req)"];
+
+    llm -> cm [label="allocate/free pages"];
+    llm -> state [label="update request state"];
+    llm -> qwen [label="forward"];
+    state -> qwen [label="cached_len + block_table"];
+    qwen -> pool [label="write / gather KV"];
+}

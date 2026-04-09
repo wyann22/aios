@@ -1,0 +1,24 @@
+digraph CacheComparison {
+    graph [
+        rankdir=LR,
+        bgcolor="white",
+        pad=0.2,
+        nodesep=0.55,
+        ranksep=0.7,
+        fontname="Helvetica"
+    ];
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, color="#3a3a3a"];
+    edge [fontname="Helvetica", fontsize=10, color="#666666", arrowsize=0.8];
+
+    dynamic [label="Dynamic\nappend by cat\ncopy every growth", fillcolor="#f2dede"];
+    prealloc [label="Preallocated\nfull contiguous reserve\nwrite by position", fillcolor="#d9edf7"];
+    paged [label="Paged\nsmall block allocation\nlogical -> physical map", fillcolor="#dff0d8"];
+
+    d_note [shape=note, label="优点: 最容易讲清楚\n缺点: 扩容和复制最重", fillcolor="#fff7cc", color="#b38f00"];
+    p_note [shape=note, label="优点: 单请求路径很直\n缺点: 容易浪费保留空间", fillcolor="#fff7cc", color="#b38f00"];
+    g_note [shape=note, label="优点: 显存利用率和并发扩展性最好\n缺点: 需要页表和更复杂内核/调度", fillcolor="#fff7cc", color="#b38f00"];
+
+    dynamic -> d_note [arrowhead=none, style=dashed];
+    prealloc -> p_note [arrowhead=none, style=dashed];
+    paged -> g_note [arrowhead=none, style=dashed];
+}

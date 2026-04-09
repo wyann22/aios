@@ -1,0 +1,70 @@
+digraph PagedKVDecodeFlow {
+    rankdir=LR;
+    splines=ortho;
+    nodesep=0.45;
+    ranksep=0.75;
+    fontname="Helvetica";
+    fontsize=11;
+    labelloc="t";
+    label="Paged KV Cache Decode Flow";
+
+    node [shape=plain fontname="Helvetica"];
+
+    logical [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="6" BGCOLOR="#f5f5f5"><B>Decode Step (History + New Token)</B></TD></TR>
+        <TR>
+          <TD BGCOLOR="#c8e6c9">t0</TD>
+          <TD BGCOLOR="#c8e6c9">t1</TD>
+          <TD BGCOLOR="#c8e6c9">t2</TD>
+          <TD BGCOLOR="#c8e6c9">t3</TD>
+          <TD BGCOLOR="#c8e6c9">n0</TD>
+          <TD BGCOLOR="#fff9c4"><B>n1</B></TD>
+        </TR>
+      </TABLE>
+    >];
+
+    table [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="2" BGCOLOR="#f5f5f5"><B>block_table</B></TD></TR>
+        <TR><TD>0</TD><TD>3</TD></TR>
+        <TR><TD>1</TD><TD>7</TD></TR>
+        <TR><TD>2</TD><TD>2</TD></TR>
+        <TR><TD>3</TD><TD>12</TD></TR>
+        <TR><TD>4</TD><TD>9</TD></TR>
+        <TR><TD>5</TD><TD>15</TD></TR>
+      </TABLE>
+    >];
+
+    write_idx [shape=box style="rounded,filled" fillcolor="#e8f5e9" color="#2e7d32"
+        label="Decode Write Index\n[15]"];
+
+    alllocs [shape=box style="rounded,filled" fillcolor="#e3f2fd" color="#1565c0"
+        label="Decode Gather Indices\n[3,7,2,12,9,15]"];
+
+    physical [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="5">
+        <TR><TD COLSPAN="16" BGCOLOR="#f5f5f5"><B>Physical KV Pool Pages</B></TD></TR>
+        <TR>
+          <TD>0</TD><TD>1</TD><TD BGCOLOR="#ffe0b2">2</TD><TD BGCOLOR="#ffe0b2">3</TD>
+          <TD>4</TD><TD>5</TD><TD>6</TD><TD BGCOLOR="#ffe0b2">7</TD>
+          <TD>8</TD><TD BGCOLOR="#ffe0b2">9</TD><TD>10</TD><TD>11</TD>
+          <TD BGCOLOR="#ffe0b2">12</TD><TD>13</TD><TD>14</TD><TD BGCOLOR="#ffe0b2">15</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    gather [shape=box style="rounded,filled" fillcolor="#e3f2fd" color="#1565c0"
+        label="Gather Decode Context\n[t0,t1,t2,t3,n0,n1]"];
+
+    attn [shape=box style="rounded,filled" fillcolor="#fff3e0" color="#ef6c00"
+        label="Decode Attention"];
+
+    logical -> table [label="map logical -> physical" color="#546e7a" fontcolor="#455a64"];
+    table -> write_idx [label="append new token mapping" color="#2e7d32" fontcolor="#2e7d32"];
+    write_idx -> physical [label="write new KV page" color="#2e7d32" fontcolor="#2e7d32"];
+    table -> alllocs [label="history + new token" color="#1565c0" fontcolor="#1565c0"];
+    alllocs -> gather [label="indices" color="#1565c0" fontcolor="#1565c0"];
+    physical -> gather [label="read mapped pages" color="#1565c0" fontcolor="#1565c0"];
+    gather -> attn [label="context window" color="#ef6c00" fontcolor="#ef6c00"];
+}

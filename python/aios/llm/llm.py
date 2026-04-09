@@ -64,6 +64,7 @@ class LLM:
         sampling_params: SamplingParams | List[SamplingParams] | None = None,
         use_kv_cache: bool = True,
         use_paged_kv_cache: bool = False,
+        trace_paged_kv: bool = False,
     ) -> List[dict]:
         if sampling_params is None:
             sampling_params = SamplingParams()
@@ -74,8 +75,23 @@ class LLM:
         else:
             params_list = sampling_params
 
+        def _short_tensor(tensor: torch.Tensor, max_items: int = 12) -> str:
+            values = tensor.detach().cpu().tolist()
+            if len(values) <= max_items:
+                return str(values)
+            head = values[: max_items // 2]
+            tail = values[-(max_items - len(head)) :]
+            return f"{head} ... {tail} (len={len(values)})"
+
+        if use_paged_kv_cache and trace_paged_kv:
+            print(
+                "[PagedKV] "
+                "init "
+                f"free_pages={len(self.cache_manager._free_slots)}"
+            )
+
         results = []
-        for prompt, sp in zip(prompts, params_list):
+        for req_id, (prompt, sp) in enumerate(zip(prompts, params_list)):
             sampler = Sampler(sp)
 
             if isinstance(prompt, str):
@@ -97,10 +113,18 @@ class LLM:
                     input_ids=input_ids[0],
                     cached_len=0,
                     output_len=sp.max_tokens,
-                    uid=0,
+                    uid=req_id,
                     sampling_params=sp,
                     block_table=block_table,
+                    trace_paged_kv=trace_paged_kv,
                 )
+                if trace_paged_kv:
+                    print(
+                        "[PagedKV] "
+                        f"allocate_prompt req={req.uid}, "
+                        f"block_table={_short_tensor(req.block_table)}, "
+                        f"free_pages={len(self.cache_manager._free_slots)}"
+                    )
             elif use_kv_cache:
                 kv_cache = DynamicKVCache(self._num_layers)
 
@@ -121,7 +145,9 @@ class LLM:
                 next_token = sampler.sample(next_logits)
                 generated = torch.cat([generated, next_token], dim=-1)
 
-                if not sp.ignore_eos and next_token.item() == self.tokenizer.eos_token_id:
+                hit_eos = (not sp.ignore_eos) and next_token.item() == self.tokenizer.eos_token_id
+
+                if hit_eos:
                     break
 
                 if use_paged_kv_cache:
@@ -129,11 +155,26 @@ class LLM:
                     req.complete_one()
                     new_block = self.cache_manager.allocate(1)
                     req.block_table = torch.cat([req.block_table, new_block])
+                    if trace_paged_kv:
+                        print(
+                            "[PagedKV] "
+                            f"allocate_decode req={req.uid}, "
+                            f"block_table={_short_tensor(req.block_table)}, "
+                            f"free_pages={len(self.cache_manager._free_slots)}"
+                        )
 
                 model_input = next_token if (kv_cache is not None or use_paged_kv_cache) else generated
 
             if req is not None and req.block_table is not None:
-                self.cache_manager._free(req.block_table[: req.cached_len])
+                free_indices = req.block_table
+                self.cache_manager._free(free_indices)
+                if trace_paged_kv:
+                    print(
+                        "[PagedKV] "
+                        f"free req={req.uid}, "
+                        f"block_table={_short_tensor(free_indices)}, "
+                        f"free_pages={len(self.cache_manager._free_slots)}"
+                    )
 
             new_token_ids = generated[0][input_ids.shape[1]:].tolist()
             text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)

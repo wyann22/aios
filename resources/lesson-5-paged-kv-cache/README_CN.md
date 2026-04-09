@@ -21,7 +21,7 @@
 - 序列越长，累计复制越重（典型 `1 + 2 + ... + n` 模式）。
 - 并发请求多时，容易引入额外内存抖动。
 
-## 2. Preallocated Cache 示意图，说明优缺点
+## 2. Preallocated Cache
 
 ![Preallocated KV Cache 示意图](preallocated_kv_cache.svg)
 
@@ -173,7 +173,7 @@ Paged KV cache 本质上就是把这个思想搬到 KV 存储：
 代码：`python/aios/llm/llm.py`
 
 - `self.cache_manager._free(req.block_table)`
-- 把本请求占用的 page 归还 `free_slots`。
+- 把该请求分配过的所有 page 归还 `free_slots`。
 
 ### 这个例子的状态快照
 
@@ -211,3 +211,24 @@ decode(seq=1):
 - 写入：`MHAKVCache.store_kv`
 - 读取：`Qwen3Attention.forward` 的 paged 路径内 gather
 - 释放：`CacheManager._free`
+
+## 7. 打印跟踪开关（trace_paged_kv）
+
+已在代码中加入可选调试开关，默认关闭：
+
+- `LLM.generate(..., use_paged_kv_cache=True, trace_paged_kv=True)`
+- `benchmark/bench.py` 支持 `--trace-paged-kv`（需配合 `--paged-kv-cache`）
+
+示例：
+
+```bash
+python benchmark/bench.py \
+  --model Qwen/Qwen3-0.6B \
+  --num-seqs 1 \
+  --max-input-len 4 \
+  --max-output-len 2 \
+  --paged-kv-cache \
+  --trace-paged-kv
+```
+
+会看到按 A-F 节点打印的关键信息（pool 初始化、block 分配、prefill/decode 的 `out_loc/all_locs`、释放）。

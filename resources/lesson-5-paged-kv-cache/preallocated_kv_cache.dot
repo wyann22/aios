@@ -1,0 +1,46 @@
+digraph PreallocatedKVCache {
+    rankdir=TB;
+    splines=ortho;
+    nodesep=0.35;
+    ranksep=0.55;
+    fontname="Helvetica";
+    fontsize=11;
+    labelloc="t";
+    label="Preallocated KV Cache (token squares)";
+
+    node [shape=plain fontname="Helvetica"];
+
+    s0 [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+        <TR><TD COLSPAN="8" BGCOLOR="#f5f5f5"><B>Allocate once</B> (max_seq_len=8)</TD></TR>
+        <TR>
+          <TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD>
+          <TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    s1 [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+        <TR><TD COLSPAN="8" BGCOLOR="#f5f5f5"><B>After prefill=4</B></TD></TR>
+        <TR>
+          <TD BGCOLOR="#c8e6c9">t0</TD><TD BGCOLOR="#c8e6c9">t1</TD><TD BGCOLOR="#c8e6c9">t2</TD><TD BGCOLOR="#c8e6c9">t3</TD>
+          <TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    s2 [label=<
+      <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+        <TR><TD COLSPAN="8" BGCOLOR="#f5f5f5"><B>After decode to len=6</B></TD></TR>
+        <TR>
+          <TD BGCOLOR="#c8e6c9">t0</TD><TD BGCOLOR="#c8e6c9">t1</TD><TD BGCOLOR="#c8e6c9">t2</TD><TD BGCOLOR="#c8e6c9">t3</TD>
+          <TD BGCOLOR="#c8e6c9">n0</TD><TD BGCOLOR="#c8e6c9">n1</TD><TD BGCOLOR="#e3f2fd">.</TD><TD BGCOLOR="#e3f2fd">.</TD>
+        </TR>
+      </TABLE>
+    >];
+
+    s0 -> s1 [label="write by position"];
+    s1 -> s2 [label="write by position"];
+}
+
