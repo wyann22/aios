@@ -23,6 +23,10 @@
 
 ## 1. 问题背景：为什么需要 Batching
 
+![串行 vs 静态批：GPU 时间线对比](./static_batching_why.png)
+
+> 上图对比两种执行方式的 **GPU 时间线**：**BEFORE（Lesson 5 串行）** 每次 `forward` 只处理 1 个请求（`bsz=1`），4 个请求要排队 4 次独立 kernel 启动，请求之间的斜纹"gap"是 GPU 空转时间；**AFTER（Lesson 6 静态批）** 把 4 个请求打包成 `(B=4, L)` 一次喂给 `model.forward`，仅启动 1 次 kernel，GPU 核心被填满。
+
 Lesson 5 实现了 paged KV cache，但多请求仍然在 `LLM.generate()` 的 for 循环中**串行**执行 `model.forward()`：
 
 ```
@@ -44,9 +48,9 @@ for req in requests:          # 逐个请求
 
 ## 2. 整体架构：Scheduler/Engine/LLM 三层
 
-![Static Batching 总览](./static_batching.png)
+![Scheduler/Engine/LLM 三层架构](./static_batching_arch.png)
 
-> 上图左侧对比 **Lesson 5 串行执行**（4 次独立 `(1, ·)` forward，GPU 大量时间空闲）与 **Lesson 6 静态批**（1 次 `(B, ·)` forward 完成 4 个请求）；右侧展示 **LLM → Scheduler → Engine** 三层分工：`LLM` 驱动 prefill/decode 循环，`Scheduler` 管理状态并决定批组成，`Engine` 纯执行 `model.forward(batch=batch)` + per-request 采样。
+> 上图展示 **LLM → Scheduler → Engine** 三层分工：`LLM` 驱动 prefill/decode 循环，`Scheduler` 管理状态（`_ReqState`）并决定批组成（`iter_prefill_batches` / `schedule_decode_batch`），`Engine` 纯执行 `model.forward(batch=batch)` + per-request 采样。箭头标注了三者之间的数据流：`drives`（LLM 驱动 Scheduler）、`scheduledBatch`（Scheduler 产出批）、`next_tokens`（Engine 回传采样结果）。
 
 ```
 LLM.generate(use_static_batch=True)
