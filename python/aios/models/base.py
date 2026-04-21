@@ -48,4 +48,5 @@ class BaseLLMModel(ABC, BaseOP):
         kv_cache: Any | None = None,
         paged_kv_cache: Any | None = None,
         req: Any | None = None,
+        batch: Any | None = None,
     ) -> torch.Tensor: ...

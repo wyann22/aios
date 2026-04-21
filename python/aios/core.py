@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, List
 
 import torch
 
@@ -31,6 +31,7 @@ class Req:
     cache_handle: Any | None = None
     block_table: torch.Tensor | None = None
     trace_paged_kv: bool = False
+    table_idx: int | None = None  # TableManager row index (lesson 6+)
 
     def __post_init__(self) -> None:
         self.device_len = len(self.input_ids)
@@ -51,3 +52,27 @@ class Req:
 
     def can_decode(self) -> bool:
         return self.remain_len > 0
+
+
+@dataclass
+class Batch:
+    """A group of requests for one forward pass (aligned with mini-sglang)."""
+
+    reqs: List[Req]
+    phase: str  # "prefill" | "decode"
+    input_ids: torch.Tensor  # (B, seq_len)
+    positions: torch.Tensor  # (B, seq_len)
+    out_loc: torch.Tensor  # (B, seq_len) — KV cache write locations
+    page_table: torch.Tensor | None = None  # (max_reqs, max_seq_len) — full page table ref
+
+    @property
+    def is_prefill(self) -> bool:
+        return self.phase == "prefill"
+
+    @property
+    def is_decode(self) -> bool:
+        return self.phase == "decode"
+
+    @property
+    def size(self) -> int:
+        return len(self.reqs)
