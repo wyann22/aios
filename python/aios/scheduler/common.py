@@ -1,41 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
 
 import torch
 
-from ..core import Batch, SamplingParams
-from ..engine.sample import Sampler
+from ..core import SamplingParams
 
 
 @dataclass
-class _ReqState:
-    """Scheduler-private per-request state."""
-
-    req: "Req"  # forward ref avoids circular import headaches
-    sampler: Sampler
-    finished: bool = False
-
-
-@dataclass
-class _PendingReq:
+class PendingReq:
     """A request waiting to be admitted to prefill."""
 
+    uid: int
     input_ids: torch.Tensor
     sampling_params: SamplingParams
-    uid: int
 
+    @property
+    def input_len(self) -> int:
+        return len(self.input_ids)
 
-@dataclass
-class ScheduledBatch:
-    """Scheduler -> Engine execution unit."""
-
-    batch: Batch
-    samplers: List[Sampler]       # aligned with batch.reqs
-    state_indices: List[int]      # row indices into running_reqs (decode batches)
-    admitted_state: "_ReqState | None" = None  # set by PrefillManager for bsz=1 prefill
-
-
-# Deferred import to satisfy the Req forward-reference at type-checking time.
-from ..core import Req  # noqa: E402  (re-export for _ReqState.req resolution)
+    @property
+    def output_len(self) -> int:
+        return self.sampling_params.max_tokens

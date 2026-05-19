@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, List
 import torch
 
 from ..core import Batch, Req, SamplingParams
-from ..engine.sample import Sampler
-from .common import ScheduledBatch, _PendingReq, _ReqState
+from .common import PendingReq
 
 if TYPE_CHECKING:
     from .cache import CacheManager
@@ -17,79 +16,85 @@ if TYPE_CHECKING:
 
 @dataclass
 class PrefillManager:
-    """Holds the pending queue; admits one request per step as a bsz=1 prefill batch.
-
-    Aligned with mini-sglang's PrefillManager (method names: add_one_req,
-    schedule_next_batch, runnable), with two deliberate simplifications:
-      1. bsz=1 admission (current attention kernel does not support varlen prefill).
-      2. No ChunkedReq (long-prompt chunking is out of scope for this lesson).
-    """
+    """Holds pending requests and admits one varlen prefill batch."""
 
     cache_manager: "CacheManager"
     table_manager: "TableManager"
     decode_manager: "DecodeManager"
-    device: torch.device
-    pending_list: List[_PendingReq] = field(default_factory=list)
+    pending_list: List[PendingReq] = field(default_factory=list)
 
-    def add_one_req(self, pending: _PendingReq) -> None:
+    def add_one_req(self, pending: PendingReq) -> None:
         self.pending_list.append(pending)
 
     @property
     def runnable(self) -> bool:
         return bool(self.pending_list)
 
-    def _can_admit(self, pending: _PendingReq, max_running: int) -> bool:
+    def _can_admit(
+        self,
+        pending: PendingReq,
+        max_running: int,
+        scheduled_count: int = 0,
+        scheduled_reserved: int = 0,
+    ) -> bool:
         # Capacity: one free table slot + one free running-set slot.
-        if self.table_manager.available_size == 0:
+        if self.table_manager.available_size - scheduled_count <= 0:
             return False
-        if len(self.decode_manager.running_reqs) >= max_running:
+        if len(self.decode_manager.running_reqs) + scheduled_count >= max_running:
             return False
-        prompt_len = len(pending.input_ids)
-        needed = prompt_len + pending.sampling_params.max_tokens
-        reserved = self.decode_manager.inflight_tokens
+        needed = pending.input_len + pending.output_len
+        reserved = self.decode_manager.inflight_tokens + scheduled_reserved
         free_pages = len(self.cache_manager._free_slots)
         return (needed + reserved) <= free_pages
 
-    def schedule_next_batch(self, max_running: int) -> ScheduledBatch | None:
+    def schedule_next_batch(
+        self, max_running: int, max_prefill_tokens: int | None = None
+    ) -> Batch | None:
         if not self.pending_list:
             return None
-        head = self.pending_list[0]
-        if not self._can_admit(head, max_running):
+
+        token_budget = max_prefill_tokens if max_prefill_tokens is not None else float("inf")
+        selected: List[PendingReq] = []
+        scheduled_tokens = 0
+        scheduled_reserved = 0
+        for pending in self.pending_list:
+            prompt_len = pending.input_len
+            if selected and scheduled_tokens + prompt_len > token_budget:
+                break
+            if prompt_len > token_budget and selected:
+                break
+            if not self._can_admit(
+                pending, max_running, len(selected), scheduled_reserved
+            ):
+                break
+            selected.append(pending)
+            scheduled_tokens += prompt_len
+            scheduled_reserved += prompt_len + pending.output_len
+            if scheduled_tokens >= token_budget:
+                break
+
+        if not selected:
             return None
-        self.pending_list.pop(0)
+        self.pending_list = self.pending_list[len(selected) :]
 
-        # Allocate table slot + prompt pages; write prompt into token_pool.
-        table_idx = self.table_manager.allocate()
-        prompt_len = len(head.input_ids)
-        pages = self.cache_manager.allocate(prompt_len)
-        self.table_manager.page_table[table_idx, :prompt_len] = pages
-        self.table_manager.token_pool[table_idx, :prompt_len] = head.input_ids.to(torch.int32)
+        reqs: List[Req] = []
+        for pending in selected:
+            # Allocate table slot and write prompt tokens. KV pages are allocated
+            # later in Scheduler._prepare_batch, matching mini-sglang's flow.
+            table_idx = self.table_manager.allocate()
+            prompt_len = pending.input_len
+            self.table_manager.token_pool[table_idx, :prompt_len] = pending.input_ids.to(
+                torch.int32
+            )
 
-        req = Req(
-            input_ids=head.input_ids,
-            cached_len=0,
-            output_len=head.sampling_params.max_tokens,
-            uid=head.uid,
-            sampling_params=head.sampling_params,
-            table_idx=table_idx,
-        )
-        state = _ReqState(req=req, sampler=Sampler(head.sampling_params))
+            req = Req(
+                input_ids=pending.input_ids,
+                cached_len=0,
+                output_len=pending.output_len,
+                uid=pending.uid,
+                sampling_params=pending.sampling_params,
+                table_idx=table_idx,
+            )
+            reqs.append(req)
 
-        # Build bsz=1 prefill batch.
-        input_ids = head.input_ids.to(self.device).long().unsqueeze(0)          # (1, prompt_len)
-        positions = torch.arange(prompt_len, device=self.device).unsqueeze(0)    # (1, prompt_len)
-        out_loc = self.table_manager.page_table[table_idx, :prompt_len].unsqueeze(0)
-        batch = Batch(
-            reqs=[req],
-            phase="prefill",
-            input_ids=input_ids,
-            positions=positions,
-            out_loc=out_loc,
-            page_table=self.table_manager.page_table,
-        )
-        return ScheduledBatch(
-            batch=batch,
-            samplers=[state.sampler],
-            state_indices=[0],
-            admitted_state=state,
-        )
+        return Batch(reqs=reqs, phase="prefill")

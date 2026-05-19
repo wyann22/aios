@@ -7,7 +7,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 
-from ..core import SamplingParams
+from ..core import Context, SamplingParams, set_global_ctx
 from ..models import ModelConfig, create_model, load_weights
 from ..engine.engine import Engine
 from ..kvcache import MHAKVCache, KVCacheLayout
@@ -52,6 +52,10 @@ class LLM:
             page_size=1,
         )
         self.cache_manager = CacheManager(self.device, self.num_pages)
+        self.ctx = Context(page_size=1)
+        self.ctx.kv_cache = self.mha_kv_cache
+        self.ctx.attn_backend = self.model.attn_backend
+        set_global_ctx(self.ctx)
 
     def _determine_num_pages(self, config: ModelConfig, memory_ratio: float) -> int:
         torch.cuda.synchronize(self.device)
@@ -71,8 +75,10 @@ class LLM:
         prompts: List[str] | List[List[int]],
         sampling_params: SamplingParams | List[SamplingParams] | None = None,
         max_running_reqs: int | None = None,
+        prefill_token_budget: int | None = None,
+        debug_scheduler: bool = False,
     ) -> List[dict]:
-        """Continuous-batching generation (lesson 7)."""
+        """Continuous-batching generation with flat varlen prefill (lesson 8)."""
         if sampling_params is None:
             sampling_params = SamplingParams()
         if isinstance(sampling_params, SamplingParams):
@@ -95,13 +101,14 @@ class LLM:
         if max_running_reqs is None:
             max_running_reqs = len(prompts)
         max_running_reqs = max(1, min(max_running_reqs, len(prompts)))
-
+        
         max_total_len = max(
             len(ids) + sp.max_tokens for ids, sp in zip(all_input_ids, params_list)
         )
         page_table = torch.zeros(
             (max_running_reqs, max_total_len), dtype=torch.int32, device=self.device
         )
+        self.ctx.page_table = page_table
         table_manager = TableManager(max_running_reqs, page_table)
 
         scheduler = Scheduler(
@@ -110,6 +117,8 @@ class LLM:
             eos_token_id=self.tokenizer.eos_token_id,
             device=self.device,
             max_running_reqs=max_running_reqs,
+            attn_backend=self.model.attn_backend,
+            prefill_token_budget=prefill_token_budget,
         )
         engine = Engine(model=self.model, mha_kv_cache=self.mha_kv_cache)
 
@@ -118,17 +127,13 @@ class LLM:
 
         iter_idx = 0
         while scheduler.has_work:
-            scheduled = scheduler.schedule_next_batch()
-            if scheduled is None:
+            batch = scheduler.schedule_next_batch()
+            if batch is None:
                 break
-            next_tokens = engine.run_batch(scheduled)
-            scheduler.process_batch_output(scheduled, next_tokens)
-            print(
-                f"[{iter_idx}] Batch={scheduled.batch} "
-                f"Pending={scheduler.prefill_manager.pending_list} "
-                f"Running={scheduler.decode_manager.running_reqs} "
-                f"Finished={scheduler.finished}"
-            )
+            next_tokens = engine.run_batch(batch)
+            scheduler.process_batch_output(batch, next_tokens)
+            if debug_scheduler:
+                print(f"[{iter_idx}] {scheduler.debug_state(batch)}")
             iter_idx += 1
 
         return scheduler.collect_results(self.tokenizer)

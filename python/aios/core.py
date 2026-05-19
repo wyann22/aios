@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import List
+from typing import TYPE_CHECKING, List, Literal
 
 import torch
+
+if TYPE_CHECKING:
+    from aios.attention import BaseAttentionBackend, BaseAttentionMetadata
+    from aios.kvcache import MHAKVCache
 
 
 @dataclass
@@ -49,6 +54,7 @@ class Req:
         self.cached_len = self.device_len
         self.device_len += 1
 
+    @property
     def can_decode(self) -> bool:
         return self.remain_len > 0
 
@@ -58,11 +64,13 @@ class Batch:
     """A group of requests for one forward pass (aligned with mini-sglang)."""
 
     reqs: List[Req]
-    phase: str  # "prefill" | "decode"
-    input_ids: torch.Tensor  # (B, seq_len)
-    positions: torch.Tensor  # (B, seq_len)
-    out_loc: torch.Tensor  # (B, seq_len) — KV cache write locations
-    page_table: torch.Tensor | None = None  # (max_reqs, max_seq_len) — full page table ref
+    phase: Literal["prefill", "decode"]
+    # these fields should be set by scheduler
+    input_ids: torch.Tensor = field(init=False)
+    positions: torch.Tensor = field(init=False)
+    out_loc: torch.Tensor = field(init=False)
+    # this field should be set by attention backend
+    attn_metadata: "BaseAttentionMetadata" = field(init=False)
 
     @property
     def is_prefill(self) -> bool:
@@ -75,3 +83,40 @@ class Batch:
     @property
     def size(self) -> int:
         return len(self.reqs)
+
+
+@dataclass
+class Context:
+    page_size: int
+    page_table: torch.Tensor = field(init=False)
+    attn_backend: "BaseAttentionBackend" = field(init=False)
+    kv_cache: "MHAKVCache" = field(init=False)
+    _batch: Batch | None = field(default=None, init=False)
+
+    @property
+    def batch(self) -> Batch:
+        assert self._batch is not None, "No active batch in context"
+        return self._batch
+
+    @contextmanager
+    def forward_batch(self, batch: Batch):
+        assert self._batch is None, "Nested forward_batch is not allowed"
+        try:
+            self._batch = batch
+            yield
+        finally:
+            self._batch = None
+
+
+_GLOBAL_CTX: Context | None = None
+
+
+def set_global_ctx(ctx: Context) -> None:
+    global _GLOBAL_CTX
+    assert _GLOBAL_CTX is None, "Global context is already set"
+    _GLOBAL_CTX = ctx
+
+
+def get_global_ctx() -> Context:
+    assert _GLOBAL_CTX is not None, "Global context is not set"
+    return _GLOBAL_CTX

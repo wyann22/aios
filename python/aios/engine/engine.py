@@ -4,9 +4,12 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from ..core import get_global_ctx
+from .sample import Sampler
+
 if TYPE_CHECKING:
+    from ..core import Batch
     from ..kvcache import MHAKVCache
-    from ..scheduler.scheduler import ScheduledBatch
 
 
 class Engine:
@@ -16,23 +19,20 @@ class Engine:
         self.model = model
         self.mha_kv_cache = mha_kv_cache
 
-    def run_batch(self, scheduled: ScheduledBatch) -> torch.Tensor:
+    def run_batch(self, batch: Batch) -> torch.Tensor:
         """Run model forward on a batch, sample next tokens.
 
         Returns: (B,) tensor of next token ids.
         """
-        batch = scheduled.batch
-        logits = self.model.forward(
-            batch.input_ids,
-            paged_kv_cache=self.mha_kv_cache,
-            batch=batch,
-        )
-        # logits: (B, seq_len, vocab) -> take last position
-        last_logits = logits[:, -1, :]  # (B, vocab)
+        ctx = get_global_ctx()
+        with ctx.forward_batch(batch):
+            logits = self.model.forward()
+        last_logits = logits[: batch.size]  # (B, vocab)
 
         # Per-request sampling (supports different sampling_params)
         next_tokens = []
-        for i, sampler in enumerate(scheduled.samplers):
+        for i, req in enumerate(batch.reqs):
+            sampler = Sampler(req.sampling_params)
             tok = sampler.sample(last_logits[i : i + 1])  # (1, 1)
             next_tokens.append(tok.view(-1)[0])
         return torch.stack(next_tokens)  # (B,)

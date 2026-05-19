@@ -5,6 +5,8 @@ from typing import Dict
 import torch
 import torch.nn.functional as F
 
+from aios.core import get_global_ctx
+
 from .base import BaseOP, _concat_prefix
 
 
@@ -30,6 +32,11 @@ class LMHead(BaseOP):
             self.weight = torch.empty(num_embeddings, embedding_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        ctx = get_global_ctx()
+        batch = ctx.batch
+        if batch.is_prefill:
+            indices = batch.attn_metadata.get_last_indices(batch.size)
+            x = x[indices].contiguous()
         w = self._tied_embedding.weight if self._tie_word_embeddings else self.weight
         return F.linear(x, w)
 

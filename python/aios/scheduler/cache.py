@@ -3,6 +3,8 @@ from __future__ import annotations
 import torch
 from aios.kvcache import create_naive_cache_manager
 
+from ..core import Req
+
 
 class CacheManager:
     def __init__(self, device: torch.device, num_pages: int):
@@ -15,13 +17,25 @@ class CacheManager:
         if len(indices) > 0:
             self._free_slots = torch.cat([self._free_slots, indices])
 
+    @property
+    def available_size(self) -> int:
+        return len(self._free_slots)
+
+    def allocate_paged(self, reqs: list[Req], page_table: torch.Tensor) -> None:
+        for req in reqs:
+            assert req.table_idx is not None
+            extend_len = req.extend_len
+            if extend_len == 0:
+                continue
+            indices = self.allocate(extend_len)
+            page_table[
+                req.table_idx,
+                req.cached_len : req.device_len,
+            ] = indices
+
     # Temporarily disabled: these methods support prefix cache handle management
     # and integrity checks, but they are unused by the current lesson-6 paged
     # KV path. Keep the implementation below commented for future re-enable.
-    #
-    # @property
-    # def available_size(self) -> int:
-    #     return self.manager.size_info.evictable_size + len(self._free_slots)
     #
     # def lock(self, handle: BaseCacheHandle) -> None:
     #     self.manager.lock_handle(handle, unlock=False)

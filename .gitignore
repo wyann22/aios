@@ -47,7 +47,6 @@ env/
 
 # Model weights (large files)
 *.safetensors
-models/
 checkpoints/
 
 # Logs
