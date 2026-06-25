@@ -10,7 +10,7 @@ from transformers import AutoConfig, AutoTokenizer
 from ..core import Context, SamplingParams, set_global_ctx
 from ..models import ModelConfig, create_model, load_weights
 from ..engine.engine import Engine
-from ..kvcache import MHAKVCache, KVCacheLayout
+from ..kvcache import MHAKVCache
 from ..scheduler import CacheManager
 from ..scheduler.scheduler import Scheduler
 from ..scheduler.table import TableManager
@@ -25,6 +25,7 @@ def _resolve_model_path(model_path: str) -> str:
 class LLM:
     def __init__(self, model_path: str, dtype: torch.dtype = torch.bfloat16, **kwargs):
         self.device = torch.device(kwargs.get("device", "cuda"))
+        assert self.device.type == "cuda", "AIOS only supports CUDA execution"
         self.dtype = dtype
 
         model_path = _resolve_model_path(model_path)
@@ -46,10 +47,9 @@ class LLM:
             num_layers=config.num_layers,
             head_dim=config.head_dim,
             num_pages=self.num_pages,
-            dtype=self.dtype,
-            kv_layout=KVCacheLayout.LayerFirst,
-            device=self.device,
             page_size=1,
+            dtype=self.dtype,
+            device=self.device,
         )
         self.cache_manager = CacheManager(self.device, self.num_pages)
         self.ctx = Context(page_size=1)

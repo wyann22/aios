@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import NamedTuple, Tuple
@@ -36,11 +35,6 @@ class BaseKVCache(ABC):
     @property
     @abstractmethod
     def num_layers(self) -> int: ...
-
-
-class KVCacheLayout(enum.Enum):
-    LayerFirst = enum.auto()
-    PageFirst = enum.auto()
 
 
 @dataclass(frozen=True)

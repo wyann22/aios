@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import torch
-import torch.nn.functional as F
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
 
 
-def silu_and_mul(gate: torch.Tensor, up: torch.Tensor) -> torch.Tensor:
-    """SiLU activation on gate, then element-wise multiply with up."""
-    return F.silu(gate) * up
+def silu_and_mul(x: torch.Tensor, out: torch.Tensor | None = None) -> torch.Tensor:
+    from flashinfer import silu_and_mul as flashinfer_silu_and_mul
+
+    return flashinfer_silu_and_mul(x, out=out)
 
 
 __all__ = ["silu_and_mul"]

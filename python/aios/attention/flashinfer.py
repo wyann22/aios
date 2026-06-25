@@ -72,23 +72,11 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
             return self._prefill(q, k, v, paged_kv_cache, layer_id, batch)
         return self._decode(q, k, v, paged_kv_cache, layer_id, batch)
 
-    def _require_flashinfer(self):
-        try:
-            import flashinfer
-        except ImportError as e:
-            raise ImportError(
-                "FlashInfer attention backend requires a torch/CUDA-compatible "
-                "FlashInfer build. Install it with `pip install flashinfer-python`."
-            ) from e
-        return flashinfer
-
-    def _check_page_size(self, paged_kv_cache: MHAKVCache) -> None:
-        if paged_kv_cache.page_size != 1:
-            raise NotImplementedError("FlashInfer backend currently expects page_size=1.")
-
     def _get_prefill_wrapper(self, device: torch.device):
+        assert device.type == "cuda", "FlashInfer attention requires CUDA"
         if self._prefill_wrapper is None:
-            flashinfer = self._require_flashinfer()
+            import flashinfer
+
             if self._workspace is None:
                 self._workspace = torch.empty(
                     self.workspace_size, dtype=torch.uint8, device=device
@@ -101,8 +89,10 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         return self._prefill_wrapper
 
     def _get_decode_wrapper(self, device: torch.device):
+        assert device.type == "cuda", "FlashInfer attention requires CUDA"
         if self._decode_wrapper is None:
-            flashinfer = self._require_flashinfer()
+            import flashinfer
+
             if self._workspace is None:
                 self._workspace = torch.empty(
                     self.workspace_size, dtype=torch.uint8, device=device
@@ -128,6 +118,7 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
     def prepare_metadata(self, batch: Batch) -> FlashInferAttentionMetadata:
         ctx = get_global_ctx()
         page_table = ctx.page_table
+        assert page_table.is_cuda, "FlashInfer attention requires a CUDA page table"
         reqs = batch.reqs
         batch_size = len(reqs)
         seqlens_q = [req.extend_len for req in reqs]
@@ -205,8 +196,8 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         k_cache = paged_kv_cache.k_cache(layer_id)
         v_cache = paged_kv_cache.v_cache(layer_id)
-        k_cache = k_cache.view(-1, 1, k_cache.shape[1], k_cache.shape[3])
-        v_cache = v_cache.view(-1, 1, v_cache.shape[1], v_cache.shape[3])
+        k_cache = k_cache.view(-1, 1, k_cache.shape[2], k_cache.shape[3])
+        v_cache = v_cache.view(-1, 1, v_cache.shape[2], v_cache.shape[3])
         return k_cache, v_cache
 
     def _prefill(
@@ -219,8 +210,6 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         batch: Batch,
     ) -> torch.Tensor:
         assert batch.is_prefill, "prefill backend expects a prefill batch"
-        self._check_page_size(paged_kv_cache)
-
         metadata = batch.attn_metadata
         assert isinstance(metadata, FlashInferAttentionMetadata)
         self._initialize_metadata_once(metadata)
@@ -240,8 +229,6 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         batch: Batch,
     ) -> torch.Tensor:
         assert batch.is_decode, "decode backend expects a decode batch"
-        self._check_page_size(paged_kv_cache)
-
         bsz = batch.size
         assert q.size(0) == bsz, "decode batch must contain one flat token per request"
         metadata = batch.attn_metadata

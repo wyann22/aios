@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from .base import BaseKVCache, KVCacheLayout, BaseCacheHandle, BaseCacheManager, SizeInfo
+from .base import BaseKVCache, BaseCacheHandle, BaseCacheManager, SizeInfo
 from .mha_pool import MHAKVCache
 from .naive_manager import NaiveCacheManager
 
@@ -10,7 +10,6 @@ def create_naive_cache_manager(device: torch.device) -> BaseCacheManager:
 
 __all__ = [
     "BaseKVCache",
-    "KVCacheLayout",
     "BaseCacheHandle",
     "BaseCacheManager",
     "SizeInfo",

@@ -11,7 +11,8 @@ dependencies = [
     "torch>=2.0",
     "safetensors",
     "transformers",
-    "flashinfer-python",
+    "flashinfer-python==0.5.3",
+    "triton",
 ]
 
 [tool.setuptools]

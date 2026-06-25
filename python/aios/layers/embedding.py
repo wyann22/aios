@@ -59,8 +59,7 @@ class LMHead(BaseOP):
         self,
         *,
         prefix: str = "",
-        result: Dict[str, torch.Tensor] | None = None,
     ) -> Dict[str, torch.Tensor]:
         if self._tie_word_embeddings:
-            return result if result is not None else {}
-        return super().state_dict(prefix=prefix, result=result)
+            return {}
+        return super().state_dict(prefix=prefix)
