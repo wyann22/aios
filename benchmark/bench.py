@@ -20,11 +20,23 @@ def main():
         default=None,
         help="Cap concurrently running reqs",
     )
+    parser.add_argument("--cuda-graph", action="store_true", help="Enable decode CUDA graph replay")
+    parser.add_argument(
+        "--cuda-graph-max-bs",
+        type=int,
+        default=None,
+        help="Largest decode batch size to capture when --cuda-graph is enabled",
+    )
     args = parser.parse_args()
 
     seed(0)
 
-    llm = LLM(args.model)
+    llm = LLM(
+        args.model,
+        max_running_reqs=args.max_running_reqs or args.num_seqs,
+        enable_cuda_graph=args.cuda_graph,
+        cuda_graph_max_bs=args.cuda_graph_max_bs,
+    )
 
     input_low = min(32, args.max_input_len)
     output_low = min(64, args.max_output_len)

@@ -44,13 +44,12 @@ Each lesson adds one major optimization. Here's the throughput progression:
 | 6 | ~30 tok/s | Paged cache (memory efficiency) | — |
 | 7 | ~400 tok/s | Batching | 13x |
 | 8 | ~600 tok/s | Continuous batching | 1.5x |
-| 9 | ~900 tok/s | FlashAttention | 1.5x |
-| 10 | ~1000 tok/s | Fused layers | 1.1x |
-| 11 | ~1200 tok/s | CUDA graphs | 1.2x |
-| 12 | ~1200 tok/s | Sampling (quality) | — |
-| 13 | ~1200 tok/s + prefix | Prefix caching | prefill savings |
-| 14 | ~2000 tok/s (2 GPU) | Tensor parallelism | 1.7x |
-| 15 | Production API | Serving layer | — |
+| 9 | ~1000 tok/s | Fused layers | 1.1x |
+| 10 | ~1200 tok/s | CUDA graphs | 1.2x |
+| 11 | ~1200 tok/s | Sampling (quality) | — |
+| 12 | ~1200 tok/s + prefix | Prefix caching | prefill savings |
+| 13 | ~2000 tok/s (2 GPU) | Tensor parallelism | 1.7x |
+| 14 | Production API | Serving layer | — |
 
 ## Course Roadmap
 
@@ -71,16 +70,16 @@ Each lesson adds one major optimization. Here's the throughput progression:
 
 ### Optimization (Lessons 9–12)
 
-- **[Lesson 9: FlashAttention](resources/lesson-9-flash-attention/README.md)** — O(N) memory attention, Triton KV cache kernel, 1.5x speedup
-- **[Lesson 10: Fused Layers](resources/lesson-10-fused-layers/README.md)** — QKV fusion, gate+up fusion, smart weight loading, packed_modules_mapping
-- **[Lesson 11: CUDA Graphs](resources/lesson-11-cuda-graphs/README.md)** — Capture and replay decode, eliminate CPU launch overhead, 1.2x speedup
-- **[Lesson 12: Sampling](resources/lesson-12-sampling/README.md)** — Gumbel-max trick, per-request temperature, top-k/top-p filtering
+- **[Lesson 9: Fused Layers](resources/lesson-9-fused-layers/README_CN.md)** — QKV fusion, gate+up fusion, smart weight loading, packed_modules_mapping
+- **[Lesson 10: CUDA Graphs](resources/lesson-10-cuda-graphs/README_CN.md)** — Capture and replay decode, eliminate CPU launch overhead, 1.2x speedup
+- **[Lesson 11: Sampling](resources/lesson-11-sampling/README_CN.md)** — Gumbel-max trick, per-request temperature, top-k/top-p filtering
+- **[Lesson 12: Prefix Caching](resources/lesson-12-prefix-caching/README_CN.md)** — Hash-chain caching, shared system prompts, prefill savings
 
-### Scaling and Serving (Lessons 13–15)
+### Scaling and Serving (Lessons 12–14)
 
-- **[Lesson 13: Prefix Caching](resources/lesson-13-prefix-caching/README.md)** — Hash-chain caching, shared system prompts, ~50x prefill reduction
-- **[Lesson 14: Tensor Parallelism](resources/lesson-14-tensor-parallelism/README.md)** — Column/row parallel, NCCL AllReduce, multi-GPU coordination
-- **[Lesson 15: API Server & Benchmarking](resources/lesson-15-api-server/README.md)** — OpenAI-compatible API, SSE streaming, throughput/latency benchmarks
+- **[Lesson 12: Prefix Caching](resources/lesson-12-prefix-caching/README_CN.md)** — Hash-chain caching, shared system prompts, prefill savings
+- **[Lesson 13: Tensor Parallelism](resources/lesson-13-tensor-parallelism/README_CN.md)** — Column/row parallel, NCCL AllReduce, multi-GPU coordination
+- **[Lesson 14: API Server & Benchmarking](resources/lesson-14-api-server/README_CN.md)** — OpenAI-compatible API, SSE streaming, throughput/latency benchmarks
 
 ## Engine Architecture (Final State)
 

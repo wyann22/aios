@@ -16,6 +16,35 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class FlashInferCaptureData:
+    seq_lens: torch.Tensor
+    cu_seqlens_k: torch.Tensor
+    cu_seqlens_q: torch.Tensor
+    page_table: torch.Tensor
+
+    @classmethod
+    def create(
+        cls, max_bs: int, max_seq_len: int, device: torch.device
+    ) -> "FlashInferCaptureData":
+        capture = cls(
+            seq_lens=torch.ones((max_bs,), dtype=torch.int32, device=device),
+            cu_seqlens_k=torch.arange(0, max_bs + 1, dtype=torch.int32, device=device),
+            cu_seqlens_q=torch.arange(0, max_bs + 1, dtype=torch.int32, device=device),
+            page_table=torch.zeros((max_bs, max_seq_len), dtype=torch.int32, device=device),
+        )
+        capture.page_table = capture.page_table.view(-1)
+        return capture
+
+    @property
+    def one_tensor(self) -> torch.Tensor:
+        return self.seq_lens
+
+    @property
+    def indices(self) -> torch.Tensor:
+        return self.page_table
+
+
+@dataclass
 class FlashInferAttentionMetadata(BaseAttentionMetadata):
     cu_seqlens_q_cpu: torch.Tensor
     cu_seqlens_k_cpu: torch.Tensor
@@ -33,7 +62,7 @@ class FlashInferAttentionMetadata(BaseAttentionMetadata):
     initialized: bool = False
 
     def get_last_indices(self, bs: int) -> torch.Tensor:
-        return self.cu_seqlens_q_gpu[1 : 1 + bs].to(torch.long) - 1
+        return self.cu_seqlens_q_gpu[1 : 1 + bs] - 1
 
 
 class FlashInferAttentionBackend(BaseAttentionBackend):
@@ -58,6 +87,11 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         self._prefill_wrapper: Any | None = None
         self._decode_wrapper: Any | None = None
         self._cached_ones_cpu: torch.Tensor = torch.tensor([], dtype=torch.int32)
+        self._capture: FlashInferCaptureData | None = None
+        self._capture_bs: list[int] = []
+        self._graph_wrappers: dict[int, Any] = {}
+        self._last_plan_event = torch.cuda.Event()
+        self._last_plan_event.record(torch.cuda.current_stream())
 
     def forward(
         self,
@@ -93,6 +127,7 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         if self._decode_wrapper is None:
             import flashinfer
 
+            prefill_wrapper = self._get_prefill_wrapper(device)
             if self._workspace is None:
                 self._workspace = torch.empty(
                     self.workspace_size, dtype=torch.uint8, device=device
@@ -104,7 +139,19 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
                 kv_layout="NHD",
                 backend="fa2",
             )
+            self._share_int_workspace(self._decode_wrapper, prefill_wrapper)
         return self._decode_wrapper
+
+    def _share_int_workspace(self, target_wrapper: Any, source_wrapper: Any) -> None:
+        """Reuse FlashInfer's internal int workspace across wrappers.
+
+        FlashInfer exposes the float workspace in the public constructor, but
+        keeps the int workspace as a private field. mini-sglang reuses that
+        field so prefill/decode/graph wrappers do not each allocate one.
+        """
+        int_workspace = getattr(source_wrapper, "_int_workspace_buffer", None)
+        if int_workspace is not None:
+            target_wrapper._int_workspace_buffer = int_workspace
 
     def _get_ones_cpu(self, bs: int) -> torch.Tensor:
         if bs <= len(self._cached_ones_cpu):
@@ -119,16 +166,23 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
         ctx = get_global_ctx()
         page_table = ctx.page_table
         assert page_table.is_cuda, "FlashInfer attention requires a CUDA page table"
-        reqs = batch.reqs
+        reqs = batch.padded_reqs
         batch_size = len(reqs)
         seqlens_q = [req.extend_len for req in reqs]
         seqlens_k = [req.device_len for req in reqs]
+        cached_lens = [req.cached_len for req in reqs]
+        max_seqlen_q = max(seqlens_q)
         cpu_kwargs = {"device": "cpu", "dtype": torch.int32, "pin_memory": True}
         device = page_table.device
 
         seq_lens_cpu = torch.tensor(seqlens_k, **cpu_kwargs)
         cu_seqlens_k_cpu = torch.tensor([0] + seqlens_k, **cpu_kwargs).cumsum_(dim=0)
-        cu_seqlens_q_cpu = torch.tensor([0] + seqlens_q, **cpu_kwargs).cumsum_(dim=0)
+        if max_seqlen_q == 1:
+            cu_seqlens_q_cpu = torch.arange(0, batch_size + 1, **cpu_kwargs)
+        elif all(length == 0 for length in cached_lens):
+            cu_seqlens_q_cpu = cu_seqlens_k_cpu
+        else:
+            cu_seqlens_q_cpu = torch.tensor([0] + seqlens_q, **cpu_kwargs).cumsum_(dim=0)
 
         metadata = FlashInferAttentionMetadata(
             cu_seqlens_q_cpu=cu_seqlens_q_cpu,
@@ -157,7 +211,12 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
             return
 
         metadata.initialized = True
-        if metadata.wrapper is self._decode_wrapper:
+        self._last_plan_event.synchronize()
+        is_decode_wrapper = (
+            metadata.wrapper is self._decode_wrapper
+            or metadata.wrapper in self._graph_wrappers.values()
+        )
+        if is_decode_wrapper:
             metadata.wrapper.plan(
                 indptr=metadata.cu_seqlens_k_cpu,
                 indices=metadata.indices,
@@ -190,6 +249,59 @@ class FlashInferAttentionBackend(BaseAttentionBackend):
                 non_blocking=True,
                 causal=True,
             )
+        self._last_plan_event.record(torch.cuda.current_stream())
+
+    def init_capture_graph(self, max_seq_len: int, bs_list: list[int]) -> None:
+        if not bs_list:
+            return
+        ctx = get_global_ctx()
+        assert self._capture is None, "CUDA graph capture is already initialized"
+        self._capture = FlashInferCaptureData.create(
+            max(bs_list), max_seq_len, ctx.kv_cache.device
+        )
+        self._capture_bs = sorted(bs_list)
+
+    def prepare_for_capture(self, batch: Batch) -> None:
+        import flashinfer
+
+        bs = batch.size
+        assert self._capture is not None, "CUDA graph capture buffers are not initialized"
+        assert bs in self._capture_bs, f"Unsupported CUDA graph batch size: {bs}"
+        assert bs not in self._graph_wrappers, f"CUDA graph wrapper already exists for bs={bs}"
+
+        device = get_global_ctx().kv_cache.device
+        prefill_wrapper = self._get_prefill_wrapper(device)
+        if self._workspace is None:
+            self._workspace = torch.empty(
+                self.workspace_size, dtype=torch.uint8, device=device
+            )
+        capture = self._capture
+        use_tensor_cores = self.num_heads // self.num_kv_heads >= 4
+        wrapper = flashinfer.CUDAGraphBatchDecodeWithPagedKVCacheWrapper(
+            self._workspace,
+            kv_layout="NHD",
+            use_tensor_cores=use_tensor_cores,
+            indptr_buffer=capture.cu_seqlens_k[: bs + 1],
+            indices_buffer=capture.indices,
+            last_page_len_buffer=capture.one_tensor[:bs],
+        )
+        wrapper._backend = "fa2"
+        self._share_int_workspace(wrapper, prefill_wrapper)
+        self._graph_wrappers[bs] = wrapper
+
+        self.prepare_metadata(batch)
+        metadata = batch.attn_metadata
+        assert isinstance(metadata, FlashInferAttentionMetadata)
+        metadata.wrapper = wrapper
+        self._initialize_metadata_once(metadata)
+
+    def prepare_for_replay(self, batch: Batch) -> None:
+        metadata = batch.attn_metadata
+        bs = batch.padded_size
+        assert isinstance(metadata, FlashInferAttentionMetadata) and not metadata.initialized
+        assert self._capture is not None and bs in self._capture_bs
+        metadata.wrapper = self._graph_wrappers[bs]
+        self._initialize_metadata_once(metadata)
 
     def _kv_cache_for_flashinfer(
         self, paged_kv_cache: MHAKVCache, layer_id: int

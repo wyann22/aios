@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple, TypeAlias
+from typing import TYPE_CHECKING, List, Tuple, TypeAlias
 
 import torch
 
@@ -11,6 +11,9 @@ from .common import PendingReq
 from .decode import DecodeManager
 from .prefill import PrefillManager
 from .table import TableManager
+
+if TYPE_CHECKING:
+    from aios.engine.graph import GraphRunner
 
 
 Indice2D: TypeAlias = Tuple[torch.Tensor, torch.Tensor]
@@ -42,6 +45,7 @@ class Scheduler:
         max_running_reqs: int,
         attn_backend: BaseAttentionBackend,
         prefill_token_budget: int | None = None,
+        graph_runner: GraphRunner | None = None,
     ) -> None:
         self.table_manager = table_manager
         self.cache_manager = cache_manager
@@ -50,6 +54,7 @@ class Scheduler:
         self.max_running = max_running_reqs
         self.attn_backend = attn_backend
         self.prefill_token_budget = prefill_token_budget
+        self.graph_runner = graph_runner
 
         self.decode_manager = DecodeManager(page_size=1)
         self.prefill_manager = PrefillManager(
@@ -86,10 +91,14 @@ class Scheduler:
         return self._prepare_batch(batch) if batch else None
 
     def _prepare_batch(self, batch: Batch) -> Batch:
+        if self.graph_runner is not None:
+            self.graph_runner.pad_batch(batch)
+        else:
+            batch.padded_reqs = batch.reqs
         self.cache_manager.allocate_paged(batch.reqs, self.table_manager.page_table)
         batch.positions = _make_positions(batch, self.device)
         input_mapping = _make_input_tuple(batch, self.device)
-        batch.input_ids = self.table_manager.token_pool[input_mapping].long()
+        batch.input_ids = self.table_manager.token_pool[input_mapping]
         batch.out_loc = self.table_manager.page_table[input_mapping]
         self.attn_backend.prepare_metadata(batch)
         return batch
@@ -151,10 +160,10 @@ class Scheduler:
 
 
 def _make_positions(batch: Batch, device: torch.device) -> torch.Tensor:
-    needed_size = sum(req.extend_len for req in batch.reqs)
+    needed_size = sum(req.extend_len for req in batch.padded_reqs)
     indices_host = torch.empty(needed_size, dtype=torch.int32, pin_memory=True)
     offset = 0
-    for req in batch.reqs:
+    for req in batch.padded_reqs:
         length = req.extend_len
         torch.arange(
             req.cached_len,
@@ -169,7 +178,7 @@ def _make_positions(batch: Batch, device: torch.device) -> torch.Tensor:
 def _make_input_tuple(batch: Batch, device: torch.device) -> Indice2D:
     mapping_host = torch.empty(len(batch.positions), dtype=torch.int64, pin_memory=True)
     offset = 0
-    for req in batch.reqs:
+    for req in batch.padded_reqs:
         length = req.extend_len
         mapping_host[offset : offset + length].fill_(req.table_idx)
         offset += length

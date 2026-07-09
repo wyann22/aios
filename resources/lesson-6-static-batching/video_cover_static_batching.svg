@@ -1,0 +1,24 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="80" x2="1120" y2="640" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#081521"/>
+      <stop offset="0.58" stop-color="#0D2A3B"/>
+      <stop offset="1" stop-color="#124150"/>
+    </linearGradient>
+    <radialGradient id="glowTop" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1080 96) rotate(135) scale(320 220)">
+      <stop stop-color="#F59E0B" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBottom" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(180 620) rotate(-18) scale(320 220)">
+      <stop stop-color="#22D3EE" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect width="1280" height="720" fill="url(#glowTop)"/>
+  <rect width="1280" height="720" fill="url(#glowBottom)"/>
+
+  <text x="640" y="226" text-anchor="middle" fill="#F8FAFC" stroke="#07131E" stroke-opacity="0.9" stroke-width="8" paint-order="stroke" font-size="82" font-weight="800" font-family="'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif">大模型推理优化:</text>
+  <text x="640" y="360" text-anchor="middle" fill="#FDBA74" stroke="#07131E" stroke-opacity="0.9" stroke-width="10" paint-order="stroke" font-size="136" font-weight="800" font-family="'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif">static-batching</text>
+</svg>

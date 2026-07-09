@@ -1,0 +1,160 @@
+digraph Lesson6SchedulerPolicy {
+    rankdir=TB;
+    splines=polyline;
+    nodesep=0.45;
+    ranksep=0.65;
+    fontname="Helvetica";
+    fontsize=11;
+    labelloc="t";
+    label="Lesson 6 Scheduling Visualization: variable prompt lengths -> prefill groups -> decode shrink on EOS";
+
+    node [shape=box style="rounded,filled" color="#455a64" fillcolor="#eceff1" fontname="Helvetica" fontsize=10];
+    edge [color="#607d8b" arrowsize=0.8 fontname="Helvetica" fontsize=9];
+
+    start [shape=oval fillcolor="#e3f2fd" label="Incoming Requests"];
+
+    subgraph cluster_input {
+        label="Input Req Bars (length ~ prompt_len)";
+        color="#cfd8dc";
+        style="rounded";
+        fontsize=10;
+
+        in_r0 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req0</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="70">len=8</TD></TR>
+            </TABLE>
+        >];
+        in_r1 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req1</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="105">len=12</TD></TR>
+            </TABLE>
+        >];
+        in_r2 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req2</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="70">len=8</TD></TR>
+            </TABLE>
+        >];
+        in_r3 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req3</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="175">len=20</TD></TR>
+            </TABLE>
+        >];
+        in_r4 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req4</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="105">len=12</TD></TR>
+            </TABLE>
+        >];
+        in_r5 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+                <TR><TD BGCOLOR="#eceff1"><B>Req5</B></TD><TD BGCOLOR="#e0e0e0" WIDTH="140">len=16</TD></TR>
+            </TABLE>
+        >];
+    }
+
+    prefill_title [shape=box fillcolor="#fff8e1" label="Prefill Scheduling: group requests by equal prompt_len"];
+
+    subgraph cluster_prefill {
+        label="Prefill Batches (same batch = same color)";
+        color="#cfd8dc";
+        style="rounded";
+        fontsize=10;
+
+        p0 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#42a5f5">
+                <TR><TD BGCOLOR="#bbdefb"><B>P0 (len=8)</B></TD></TR>
+                <TR><TD BGCOLOR="#64b5f6">Req0, Req2</TD></TR>
+            </TABLE>
+        >];
+        p1 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#66bb6a">
+                <TR><TD BGCOLOR="#c8e6c9"><B>P1 (len=12)</B></TD></TR>
+                <TR><TD BGCOLOR="#81c784">Req1, Req4</TD></TR>
+            </TABLE>
+        >];
+        p2 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#ffa726">
+                <TR><TD BGCOLOR="#ffe0b2"><B>P2 (len=16)</B></TD></TR>
+                <TR><TD BGCOLOR="#ffb74d">Req5</TD></TR>
+            </TABLE>
+        >];
+        p3 [shape=plaintext label=<
+            <TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="4" COLOR="#ef5350">
+                <TR><TD BGCOLOR="#ffcdd2"><B>P3 (len=20)</B></TD></TR>
+                <TR><TD BGCOLOR="#e57373">Req3</TD></TR>
+            </TABLE>
+        >];
+    }
+
+    decode_title [shape=box fillcolor="#e8f5e9" label="Decode Scheduling: merge all active reqs into ONE batch each round"];
+
+    d0 [shape=plaintext label=<
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+            <TR><TD BGCOLOR="#e0f2f1" COLSPAN="6"><B>Decode Round 0 (Batch B0)</B></TD></TR>
+            <TR>
+                <TD>Req0</TD><TD>Req1</TD><TD>Req2</TD><TD>Req3</TD><TD>Req4</TD><TD>Req5</TD>
+            </TR>
+        </TABLE>
+    >];
+    d1 [shape=plaintext label=<
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+            <TR><TD BGCOLOR="#e0f2f1" COLSPAN="5"><B>Decode Round 1 (Batch B1)</B></TD></TR>
+            <TR>
+                <TD>Req0</TD><TD>Req1</TD><TD>Req3</TD><TD>Req4</TD><TD>Req5</TD>
+            </TR>
+        </TABLE>
+    >];
+    d2 [shape=plaintext label=<
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+            <TR><TD BGCOLOR="#e0f2f1" COLSPAN="4"><B>Decode Round 2 (Batch B2)</B></TD></TR>
+            <TR>
+                <TD>Req0</TD><TD>Req1</TD><TD>Req3</TD><TD>Req5</TD>
+            </TR>
+        </TABLE>
+    >];
+    d3 [shape=plaintext label=<
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+            <TR><TD BGCOLOR="#e0f2f1" COLSPAN="3"><B>Decode Round 3 (Batch B3)</B></TD></TR>
+            <TR>
+                <TD>Req0</TD><TD>Req3</TD><TD>Req5</TD>
+            </TR>
+        </TABLE>
+    >];
+    d4 [shape=plaintext label=<
+        <TABLE BORDER="1" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4" COLOR="#607d8b">
+            <TR><TD BGCOLOR="#e0f2f1" COLSPAN="1"><B>Decode Round 4 (Batch B4)</B></TD></TR>
+            <TR><TD>Req3</TD></TR>
+        </TABLE>
+    >];
+    done [shape=oval fillcolor="#c8e6c9" label="All req finished -> finalize_results()"];
+
+    start -> in_r0;
+    start -> in_r1;
+    start -> in_r2;
+    start -> in_r3;
+    start -> in_r4;
+    start -> in_r5;
+
+    in_r0 -> prefill_title;
+    in_r1 -> prefill_title;
+    in_r2 -> prefill_title;
+    in_r3 -> prefill_title;
+    in_r4 -> prefill_title;
+    in_r5 -> prefill_title;
+
+    prefill_title -> p0;
+    prefill_title -> p1;
+    prefill_title -> p2;
+    prefill_title -> p3;
+
+    p0 -> decode_title;
+    p1 -> decode_title;
+    p2 -> decode_title;
+    p3 -> decode_title;
+
+    decode_title -> d0;
+    d0 -> d1 [label="Req2 hits EOS -> remove"];
+    d1 -> d2 [label="Req4 hits EOS -> remove"];
+    d2 -> d3 [label="Req1 hits EOS -> remove"];
+    d3 -> d4 [label="Req0 & Req5 hit EOS -> remove"];
+    d4 -> done [label="Req3 hits EOS -> remove"];
+}

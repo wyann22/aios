@@ -69,6 +69,7 @@ class Batch:
     input_ids: torch.Tensor = field(init=False)
     positions: torch.Tensor = field(init=False)
     out_loc: torch.Tensor = field(init=False)
+    padded_reqs: List[Req] = field(init=False)
     # this field should be set by attention backend
     attn_metadata: "BaseAttentionMetadata" = field(init=False)
 
@@ -83,6 +84,10 @@ class Batch:
     @property
     def size(self) -> int:
         return len(self.reqs)
+
+    @property
+    def padded_size(self) -> int:
+        return len(self.padded_reqs)
 
 
 @dataclass
@@ -115,6 +120,11 @@ def set_global_ctx(ctx: Context) -> None:
     global _GLOBAL_CTX
     assert _GLOBAL_CTX is None, "Global context is already set"
     _GLOBAL_CTX = ctx
+
+
+def clear_global_ctx() -> None:
+    global _GLOBAL_CTX
+    _GLOBAL_CTX = None
 
 
 def get_global_ctx() -> Context:
