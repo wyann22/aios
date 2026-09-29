@@ -47,8 +47,8 @@ Each lesson adds one major optimization. Here's the throughput progression:
 | 9 | ~1000 tok/s | Fused layers | 1.1x |
 | 10 | ~1200 tok/s | CUDA graphs | 1.2x |
 | 11 | ~1200 tok/s | Sampling (quality) | — |
-| 12 | ~1200 tok/s + prefix | Prefix caching | prefill savings |
-| 13 | ~2000 tok/s (2 GPU) | Tensor parallelism | 1.7x |
+| 12 | Multi-GPU | Tensor parallelism | model capacity + scale-out |
+| 13 | Planned | Prefix caching | prefill savings |
 | 14 | Production API | Serving layer | — |
 
 ## Course Roadmap
@@ -68,17 +68,16 @@ Each lesson adds one major optimization. Here's the throughput progression:
 - **[Lesson 7: Batching](resources/lesson-7-batching/README.md)** — Variable-length batching with cu_seqlens, the Context pattern, 13x throughput
 - **[Lesson 8: The Scheduler](resources/lesson-8-scheduler/README.md)** — Continuous batching, prefill-first scheduling, preemption, engine loop
 
-### Optimization (Lessons 9–12)
+### Optimization (Lessons 9–11)
 
 - **[Lesson 9: Fused Layers](resources/lesson-9-fused-layers/README_CN.md)** — QKV fusion, gate+up fusion, smart weight loading, packed_modules_mapping
 - **[Lesson 10: CUDA Graphs](resources/lesson-10-cuda-graphs/README_CN.md)** — Capture and replay decode, eliminate CPU launch overhead, 1.2x speedup
 - **[Lesson 11: Sampling](resources/lesson-11-sampling/README_CN.md)** — Gumbel-max trick, per-request temperature, top-k/top-p filtering
-- **[Lesson 12: Prefix Caching](resources/lesson-12-prefix-caching/README_CN.md)** — Hash-chain caching, shared system prompts, prefill savings
 
 ### Scaling and Serving (Lessons 12–14)
 
-- **[Lesson 12: Prefix Caching](resources/lesson-12-prefix-caching/README_CN.md)** — Hash-chain caching, shared system prompts, prefill savings
-- **[Lesson 13: Tensor Parallelism](resources/lesson-13-tensor-parallelism/README_CN.md)** — Column/row parallel, NCCL AllReduce, multi-GPU coordination
+- **[Lesson 12: Tensor Parallelism](resources/lesson-12-tensor-parallelism/README_CN.md)** — Column/row parallel, vocabulary sharding, NCCL collectives, multi-GPU coordination
+- **Lesson 13: Prefix Caching (planned)** — Radix cache and shared-prefix KV reuse
 - **[Lesson 14: API Server & Benchmarking](resources/lesson-14-api-server/README_CN.md)** — OpenAI-compatible API, SSE streaming, throughput/latency benchmarks
 
 ## Engine Architecture (Final State)

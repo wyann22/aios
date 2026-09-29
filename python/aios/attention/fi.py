@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal
 import torch
 
 from aios.core import Batch, get_global_ctx
+from aios.distributed import div_even, get_tp_info
 
 from .base import BaseAttnBackend, BaseAttnMetadata
 from .utils import BaseCaptureData
@@ -95,8 +96,11 @@ class FlashInferBackend(BaseAttnBackend):
         self.int_workspace_buffer = self.prefill_wrapper._int_workspace_buffer
         self.decode_wrapper._int_workspace_buffer = self.int_workspace_buffer
 
-        self.qo_head_local = config.num_qo_heads
-        self.kv_head_local = config.num_kv_heads
+        tp_size = get_tp_info().size
+        self.qo_head_local = div_even(config.num_qo_heads, tp_size)
+        self.kv_head_local = div_even(
+            config.num_kv_heads, tp_size, allow_replicate=True
+        )
         self.cached_ones_cpu = torch.tensor([], dtype=torch.int32, pin_memory=True)
         self.capture_bs: List[int] = []
         self.max_graph_bs = 0

@@ -70,7 +70,7 @@ hidden = silu_and_mul(gate_up)
 - `q_size = 16 × 128 = 2048`，`kv_size = 8 × 128 = 1024`，故 `Wqkv` 的形状为 `(4096, 1024)`，输出为 `(T, 4096)`。
 - `Wgate_up` 的形状为 `(2 × 3072, 1024) = (6144, 1024)`；`silu_and_mul` 读取其前半部分作为 gate、后半部分作为 up，输出恢复到 `(T, 3072)`。
 
-`LinearColParallelMerged` 名称中的 *ColumnParallel* 为 Lesson 14 预留：在 tensor parallel 时，输出通道可按 rank 切分。本课暂时不引入 TP，只保留 merged linear 的单 GPU 语义：共享输入读一次，输出维变宽，随后用 view 切回原来的逻辑分支。
+`LinearColParallelMerged` 名称中的 *ColumnParallel* 为 Lesson 12 预留：在 tensor parallel 时，输出通道可按 rank 切分。本课暂时不引入 TP，只保留 merged linear 的单 GPU 语义：共享输入读一次，输出维变宽，随后用 view 切回原来的逻辑分支。
 
 ### 3. 残差路径也可以合并
 
@@ -100,7 +100,7 @@ KV 写入保持在 `MHAKVCache.store_kv()`，但其实现委托给 `kernel.store
 - `LinearQKVMerged`：布局 `[Q | K | V]`。
 - `LinearColParallelMerged`：布局 `[gate | up]`。
 
-它们当前是 replicated linear。Lesson 14 才在这些类上添加 shard 与 all-reduce，因此本课不提前引入 TP 概念。
+它们当前是 replicated linear。Lesson 12 才在这些类上添加 shard 与 all-reduce，因此本课不提前引入 TP 概念。
 
 `python/aios/models/qwen3.py` 相应将 `q_proj/k_proj/v_proj` 改为一个 `qkv_proj`，并将 `gate_proj/up_proj` 改为一个 `gate_up_proj`。Q/K norm、RoPE、attention backend 的输入形状保持不变。
 
@@ -137,7 +137,7 @@ HF gate_proj, up_proj      ->  gate_up_proj.weight
 | KV store 内核实现 | Triton | C++/CUDA JIT |
 | 张量并行 | 未实现 | 已实现 |
 
-后两项是实现层面的边界：本课只优化单 GPU，TP 留给 Lesson 14；Triton 让学生能直接阅读 KV 写入 kernel。除 KV 内核语言和尚未引入的 TP 外，当前 KV pool、FlashInfer metadata、fused layer 的字段、数据布局、调用顺序和职责边界与 mini-sglang 一致。
+后两项是实现层面的边界：本课只优化单 GPU，TP 留给 Lesson 12；Triton 让学生能直接阅读 KV 写入 kernel。除 KV 内核语言和尚未引入的 TP 外，当前 KV pool、FlashInfer metadata、fused layer 的字段、数据布局、调用顺序和职责边界与 mini-sglang 一致。
 
 ## 验证
 

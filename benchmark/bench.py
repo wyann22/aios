@@ -20,6 +20,12 @@ def main():
         default=None,
         help="Cap concurrently running reqs",
     )
+    parser.add_argument(
+        "--tensor-parallel-size",
+        type=int,
+        default=1,
+        help="Number of torchrun ranks used for tensor parallelism",
+    )
     parser.add_argument("--cuda-graph", action="store_true", help="Enable decode CUDA graph replay")
     parser.add_argument(
         "--cuda-graph-max-bs",
@@ -36,6 +42,7 @@ def main():
         max_running_reqs=args.max_running_reqs or args.num_seqs,
         enable_cuda_graph=args.cuda_graph,
         cuda_graph_max_bs=args.cuda_graph_max_bs,
+        tensor_parallel_size=args.tensor_parallel_size,
     )
 
     input_low = min(32, args.max_input_len)
@@ -60,7 +67,12 @@ def main():
 
     total_tokens = sum(sp.max_tokens for sp in sampling_params)
     throughput = total_tokens / t
-    print(f"[CONTINUOUS_BATCH] Total: {total_tokens}tok, Time: {t:.2f}s, Throughput: {throughput:.2f}tok/s")
+    if llm.is_primary:
+        print(
+            f"[TP={args.tensor_parallel_size}] Total: {total_tokens}tok, "
+            f"Time: {t:.2f}s, Throughput: {throughput:.2f}tok/s"
+        )
+    llm.close()
 
 
 if __name__ == "__main__":

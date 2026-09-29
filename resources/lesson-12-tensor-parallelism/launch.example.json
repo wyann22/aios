@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Lesson 12: Tensor Parallel E2E (2 GPUs)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.run",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "subProcess": true,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/python",
+                "CUDA_VISIBLE_DEVICES": "0,1",
+                "CUDA_HOME": "/usr/local/cuda-12.8",
+                "PATH": "/usr/local/cuda-12.8/bin:${env:PATH}",
+                "FLASHINFER_CACHE_DIR": "/tmp/flashinfer-aios-lesson12-tp"
+            },
+            "args": [
+                "--standalone", "--nproc-per-node", "2",
+                "${workspaceFolder}/resources/lesson-12-tensor-parallelism/run_lesson12.py",
+                "--suite", "e2e", "--model", "${input:qwenModelPath}",
+                "--tp-size", "2", "--num-seqs", "2", "--input-len", "8",
+                "--max-tokens", "2", "--max-running", "2", "--memory-ratio", "0.2"
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "qwenModelPath",
+            "type": "promptString",
+            "description": "Local Qwen3-0.6B model directory"
+        }
+    ]
+}

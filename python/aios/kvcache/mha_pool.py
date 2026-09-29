@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+from aios.distributed import div_even, get_tp_info
+
 from .base import BaseKVCache
 
 
@@ -24,7 +26,9 @@ class MHAKVCache(BaseKVCache):
         assert device.type == "cuda", "AIOS only supports CUDA execution"
         assert page_size == 1, "AIOS FlashInfer backend only supports page_size=1"
 
-        local_kv_heads = num_kv_heads  # Tensor parallelism is introduced later.
+        local_kv_heads = div_even(
+            num_kv_heads, get_tp_info().size, allow_replicate=True
+        )
         self._kv_buffer = torch.empty(
             (2, num_layers, num_pages, page_size, local_kv_heads, head_dim),
             device=device,

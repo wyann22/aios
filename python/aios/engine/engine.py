@@ -6,6 +6,12 @@ import torch
 
 from ..attention import FlashInferBackend
 from ..core import Context, Req, SamplingParams, clear_global_ctx, set_global_ctx
+from ..distributed import (
+    DistributedCommunicator,
+    destroy_distributed,
+    div_even,
+    get_tp_info,
+)
 from ..kvcache import MHAKVCache
 from ..models import ModelConfig, create_model, load_weights
 from .graph import GraphRunner, get_free_memory
@@ -38,11 +44,19 @@ class Engine:
         self.dtype = dtype
         self.model_config = model_config
         self.max_running_reqs = max_running_reqs
+        self.tp_info = get_tp_info()
+        self._comm = DistributedCommunicator()
 
         initial_free_memory = self._sync_get_free_memory()
         with torch.device("meta"):
             self.model = create_model(model_path, model_config)
-        load_weights(self.model, model_path, device, dtype)
+        load_weights(
+            self.model,
+            model_path,
+            device,
+            dtype,
+            num_kv_heads=model_config.num_kv_heads,
+        )
         self.model.model._rotary_emb.set_device(device)
 
         self.num_pages = self._determine_num_pages(
@@ -105,7 +119,16 @@ class Engine:
         torch.cuda.synchronize(self.device)
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(self.device)
-        return get_free_memory(self.device)
+        free_memory = get_free_memory(self.device)
+        if self.tp_info.size > 1:
+            free_tensor = torch.tensor(
+                free_memory, dtype=torch.int64, device=self.device
+            )
+            torch.distributed.all_reduce(
+                free_tensor, op=torch.distributed.ReduceOp.MIN
+            )
+            free_memory = int(free_tensor.item())
+        return free_memory
 
     def _determine_num_pages(
         self,
@@ -118,7 +141,11 @@ class Engine:
         cache_per_page = (
             2
             * config.head_dim
-            * config.num_kv_heads
+            * div_even(
+                config.num_kv_heads,
+                self.tp_info.size,
+                allow_replicate=True,
+            )
             * self.dtype.itemsize
             * config.num_layers
         )
@@ -146,13 +173,22 @@ class Engine:
         for req in batch.reqs:
             req.complete_one()
 
-        return self.sampler.sample(logits[: batch.size], args).to(torch.int32)
+        if self.tp_info.is_primary:
+            next_tokens = self.sampler.sample(
+                logits[: batch.size], args
+            ).to(torch.int32)
+        else:
+            next_tokens = torch.empty(
+                batch.size, dtype=torch.int32, device=self.device
+            )
+        return self._comm.broadcast(next_tokens, src=0)
 
     def shutdown(self) -> None:
         if self.graph_runner is not None:
             self.graph_runner.destroy_cuda_graphs()
             self.graph_runner = None
         clear_global_ctx()
+        destroy_distributed()
 
 
 def _align_up_32(num: int) -> int:

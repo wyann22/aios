@@ -7,6 +7,7 @@ Usage:
 """
 
 import argparse
+import os
 import time
 
 from aios import LLM, SamplingParams
@@ -28,15 +29,24 @@ def main():
                         help="Device to use (e.g. cuda, cuda:0, cuda:1)")
     parser.add_argument("--max-running-reqs", type=int, default=None,
                         help="Cap concurrently running reqs (defaults to batch size)")
+    parser.add_argument("--tensor-parallel-size", type=int, default=1,
+                        help="Number of GPUs used by tensor parallelism")
     args = parser.parse_args()
 
     prompts = args.prompt or ["Who are you?"]
 
-    print(f"Loading model from {args.model}...")
+    rank = int(os.environ.get("RANK", "0"))
+    if rank == 0:
+        print(f"Loading model from {args.model}...")
     t0 = time.perf_counter()
-    llm = LLM(args.model, device=args.device)
+    llm = LLM(
+        args.model,
+        device=args.device,
+        tensor_parallel_size=args.tensor_parallel_size,
+    )
     t_load = time.perf_counter() - t0
-    print(f"Model loaded in {t_load:.1f}s\n")
+    if llm.is_primary:
+        print(f"Model loaded in {t_load:.1f}s\n")
 
     sampling_params = SamplingParams(
         temperature=args.temperature,
@@ -46,10 +56,12 @@ def main():
 
     results = llm.generate(prompts, sampling_params, max_running_reqs=args.max_running_reqs)
 
-    for i, r in enumerate(results):
-        if len(results) > 1:
-            print(f"=== prompt {i}: {prompts[i]!r} ===")
-        print(r["text"])
+    if llm.is_primary:
+        for i, r in enumerate(results):
+            if len(results) > 1:
+                print(f"=== prompt {i}: {prompts[i]!r} ===")
+            print(r["text"])
+    llm.close()
 
 
 if __name__ == "__main__":

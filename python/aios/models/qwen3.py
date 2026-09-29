@@ -6,15 +6,16 @@ import torch
 from aios.core import get_global_ctx
 from aios.layers import (
     BaseOP,
-    Embedding,
-    Linear,
     LinearColParallelMerged,
+    LinearOProj,
     LinearQKVMerged,
-    LMHead,
+    LinearRowParallel,
     OPList,
+    ParallelLMHead,
     RMSNorm,
     RMSNormFused,
     RotaryEmbedding,
+    VocabParallelEmbedding,
     apply_rotary_pos_emb,
     silu_and_mul,
 )
@@ -27,18 +28,23 @@ if TYPE_CHECKING:
 
 class Qwen3Attention(BaseOP):
     def __init__(self, config: ModelConfig, layer_idx: int):
-        self.num_heads = config.num_qo_heads
-        self.num_kv_heads = config.num_kv_heads
         self.head_dim = config.head_dim
         self._scale = config.head_dim ** -0.5
         self._layer_idx = layer_idx
 
-        self.q_size = self.num_heads * self.head_dim
-        self.kv_size = self.num_kv_heads * self.head_dim
         self.qkv_proj = LinearQKVMerged(
-            config.hidden_size, self.q_size, self.kv_size
+            config.hidden_size,
+            config.head_dim,
+            config.num_qo_heads,
+            config.num_kv_heads,
         )
-        self.o_proj = Linear(self.num_heads * self.head_dim, config.hidden_size)
+        self.num_heads = self.qkv_proj.local_num_qo_heads
+        self.num_kv_heads = self.qkv_proj.local_num_kv_heads
+        self.q_size = self.qkv_proj.q_size
+        self.kv_size = self.qkv_proj.kv_size
+        self.o_proj = LinearOProj(
+            config.num_qo_heads * self.head_dim, config.hidden_size
+        )
 
         self.q_norm = RMSNorm(self.head_dim, config.rms_norm_eps)
         self.k_norm = RMSNorm(self.head_dim, config.rms_norm_eps)
@@ -71,7 +77,9 @@ class Qwen3MLP(BaseOP):
         self.gate_up_proj = LinearColParallelMerged(
             config.hidden_size, [config.intermediate_size, config.intermediate_size]
         )
-        self.down_proj = Linear(config.intermediate_size, config.hidden_size)
+        self.down_proj = LinearRowParallel(
+            config.intermediate_size, config.hidden_size
+        )
         match config.hidden_act:
             case "silu":
                 self._act_fn = silu_and_mul
@@ -109,7 +117,9 @@ class Qwen3DecoderLayer(BaseOP):
 
 class Qwen3Model(BaseOP):
     def __init__(self, config: ModelConfig):
-        self.embed_tokens = Embedding(config.vocab_size, config.hidden_size)
+        self.embed_tokens = VocabParallelEmbedding(
+            config.vocab_size, config.hidden_size
+        )
         self.layers = OPList(
             [Qwen3DecoderLayer(config, i) for i in range(config.num_layers)]
         )
@@ -138,7 +148,7 @@ class Qwen3Model(BaseOP):
 class Qwen3ForCausalLM(BaseLLMModel):
     def __init__(self, config: ModelConfig):
         self.model = Qwen3Model(config)
-        self.lm_head = LMHead(
+        self.lm_head = ParallelLMHead(
             config.vocab_size,
             config.hidden_size,
             tie_word_embeddings=config.tie_word_embeddings,

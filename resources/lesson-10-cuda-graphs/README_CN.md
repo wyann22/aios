@@ -185,7 +185,7 @@ decode  -> CUDA Graph + graph-aware FlashInfer wrapper
 
 更精确地说，本课捕获的是从 embedding 到 LM head logits 的 `model.forward()`；
 sampling 和 scheduler 的 CPU 状态更新仍在 graph 外执行。这样保持 graph topology
-稳定，也不提前引入 Lesson 12 的 batch sampler。
+稳定，也不提前引入 Lesson 11 的 batch sampler。
 
 ### 2.8 Attention metadata 也必须 graph-aware
 

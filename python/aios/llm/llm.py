@@ -8,6 +8,7 @@ from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 
 from ..core import SamplingParams
+from ..distributed import initialize_distributed
 from ..engine.engine import Engine
 from ..models import ModelConfig
 from ..scheduler import CacheManager
@@ -23,7 +24,15 @@ def _resolve_model_path(model_path: str) -> str:
 
 class LLM:
     def __init__(self, model_path: str, dtype: torch.dtype = torch.bfloat16, **kwargs):
-        self.device = _normalize_cuda_device(kwargs.get("device", "cuda"))
+        self.tensor_parallel_size = int(kwargs.get("tensor_parallel_size", 1))
+        self.tp_info = initialize_distributed(
+            self.tensor_parallel_size,
+            timeout_seconds=float(kwargs.get("distributed_timeout", 120.0)),
+        )
+        if self.tensor_parallel_size > 1:
+            self.device = torch.device(f"cuda:{self.tp_info.local_rank}")
+        else:
+            self.device = _normalize_cuda_device(kwargs.get("device", "cuda"))
         assert self.device.type == "cuda", "AIOS only supports CUDA execution"
         self.dtype = dtype
         self.max_running_reqs = int(kwargs.get("max_running_reqs", 16))
@@ -65,6 +74,10 @@ class LLM:
         self.cache_manager = CacheManager(
             self.engine.num_pages, self.engine.ctx.page_size, self.page_table
         )
+
+    @property
+    def is_primary(self) -> bool:
+        return self.tp_info.is_primary
 
     def close(self) -> None:
         self.engine.shutdown()
