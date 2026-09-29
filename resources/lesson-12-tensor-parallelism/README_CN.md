@@ -43,7 +43,9 @@
 
 每张 GPU 保存一份**完整模型**，但处理不同的数据或请求。训练时，各副本通过 AllReduce 同步梯度；推理时通常让不同副本独立服务不同请求。
 
-![数据并行：每张 GPU 保存完整模型并处理不同数据](https://docs.nvidia.com/nemo/megatron-bridge/nightly/_images/ddp.gif)
+![数据并行：每张 GPU 保存完整模型并处理不同请求](data_parallel.png)
+
+图中用四层模型示意；两张卡的权重相同，请求不同。[NVIDIA 原动画](https://docs.nvidia.com/nemo/megatron-bridge/nightly/_images/ddp.gif)。
 
 优点是吞吐扩展简单；缺点是每张卡仍需放下完整模型，因此不能解决“单个模型放不下”的问题。
 
@@ -51,7 +53,9 @@
 
 把连续的网络层分成多个 stage，每张 GPU 负责一段层，activation 按顺序从前一 stage 传到后一 stage。多个 micro-batch 可以像流水线一样交错执行。
 
-![流水线并行：连续网络层分配到不同 GPU stage](https://docs.nvidia.com/nemo/megatron-bridge/nightly/_images/pp.gif)
+![流水线并行：网络按层分配到两张 GPU，三个 micro-batch 交错执行](pipeline_parallel.png)
+
+图中每个方块 `MB` 表示一个 micro-batch 的前向计算；假设两个 stage 耗时相同，省略通信耗时。空心块表示空闲，不是缺失的网络层。[NVIDIA 原动画](https://docs.nvidia.com/nemo/megatron-bridge/nightly/_images/pp.gif)。
 
 PP 能降低每卡权重占用，而且 stage 间只传 activation；但单个请求仍要依次经过所有 stage，micro-batch 不足时会出现 pipeline bubble。LLM decode 每步只有少量 token，bubble 尤其明显。
 
