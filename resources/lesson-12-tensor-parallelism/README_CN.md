@@ -306,6 +306,10 @@ Y    = mid @ Wdownᵀ     Wdown: [H,I]
 
 `gate_proj` 与 `up_proj` 都沿输出维 `dim=0` 切分，然后融合；`down_proj` 沿输入维 `dim=1` 切分：
 
+![MLP Tensor Parallel：Gate/Up 成对列切分，各 rank 独立完成 SwiGLU，Down 部分和经 AllReduce 恢复完整输出](mlp_tp_operators.png)
+
+图中 `TP=2`，蓝、紫表示不同 rank；斜线是权重，纯色是激活。权重按转置后的乘法方向绘制：`X[T,H] × [Wgate_rᵀ | Wup_rᵀ][H,I]` 得到本地 fused 输出 `[T,I]`，拆成两个 `[T,I/2]` 后逐元素计算 `M_r = SiLU(gate_r) × up_r`。随后 `M_r[T,I/2] × Wdown_rᵀ[I/2,H]` 得到部分和 `P_r[T,H]`；最后 **求和，不是拼接**，两个 rank 都得到 `Y=P_0+P_1`。图中并列分片只表示数据布局，不代表执行了 AllGather。
+
 | 阶段 | 未切分 / 全局 shape | 每个 rank 的 shape | 通信 |
 |---|---|---|---|
 | 输入 hidden | `X: [T,H]` | `[T,H]`，每个 rank 相同 | 无 |
